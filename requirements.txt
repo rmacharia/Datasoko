@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+pandas
+pydantic
+psycopg2-binary
+openpyxl
+python-multipart
