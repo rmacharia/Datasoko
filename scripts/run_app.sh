@@ -1,8 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-HOST="${HOST:-0.0.0.0}"
-PORT="${PORT:-8000}"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+if [[ -f "$ROOT_DIR/.env" ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source "$ROOT_DIR/.env"
+  set +a
+fi
+
+HOST="${BACKEND_HOST:-${HOST:-0.0.0.0}}"
+PORT="${BACKEND_PORT:-${PORT:-8000}}"
 RELOAD="${RELOAD:-1}"
 
 if ! command -v uvicorn >/dev/null 2>&1; then
