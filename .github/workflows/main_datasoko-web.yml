@@ -35,8 +35,13 @@ jobs:
       - name: Prepare deployment package
         run: |
           mkdir ../deploy
+
           cp -r .next ../deploy/
-          cp -r public ../deploy/
+    
+          if [ -d "public" ]; then
+           cp -r public ../deploy/
+          fi
+
           cp package.json ../deploy/
           cp package-lock.json ../deploy/
 
