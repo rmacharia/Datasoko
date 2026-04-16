@@ -37,6 +37,7 @@ jobs:
           mkdir ../deploy
 
           cp -r .next ../deploy/
+          cp -r node_modules ../deploy/
     
           if [ -d "public" ]; then
            cp -r public ../deploy/
