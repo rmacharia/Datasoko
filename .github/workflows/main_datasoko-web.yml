@@ -12,34 +12,33 @@ jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
 
+    defaults:
+      run:
+        working-directory: frontend
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set working directory
-        run: cd frontend
-
-      - name: Set up Node
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
-      - name: Install deps
-        run: |
-          cd frontend
-          npm install
+      - name: Install dependencies
+        run: npm install
 
-      - name: Build
-        run: |
-          cd frontend
-          npm run build
+      - name: Build Next.js app
+        run: npm run build
+        env:
+          NEXT_PUBLIC_API_BASE_URL: https://datasoko-api.azurewebsites.net
 
       - name: Prepare deployment package
         run: |
-          mkdir deploy
-          cp -r frontend/.next deploy/
-          cp -r frontend/public deploy/
-          cp frontend/package.json deploy/
-          cp frontend/package-lock.json deploy/
+          mkdir ../deploy
+          cp -r .next ../deploy/
+          cp -r public ../deploy/
+          cp package.json ../deploy/
+          cp package-lock.json ../deploy/
 
       - name: Deploy to Azure
         uses: azure/webapps-deploy@v3
