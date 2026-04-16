@@ -1,3 +1,4 @@
+  GNU nano 5.4                                                                                                                                                                                                               backend/storage/postgres_connection.py                                                                                                                                                                                                                         
 from __future__ import annotations
 
 import os
@@ -31,12 +32,24 @@ def load_postgres_config_from_env() -> PostgresConnectionConfig:
 def create_postgres_connection(config: PostgresConnectionConfig | None = None) -> Any:
     cfg = config or load_postgres_config_from_env()
 
-    try:
-        import psycopg  # type: ignore
+    dsn = os.getenv("DATABASE_URL")
 
+    # ✅ PRIORITIZE DATABASE_URL
+    if dsn:
+        try:
+            import psycopg
+            return psycopg.connect(dsn)
+        except ImportError:
+            import psycopg2
+            return psycopg2.connect(dsn)
+
+    # 🔁 FALLBACK (old logic)
+    cfg = config or load_postgres_config_from_env()
+
+    try:
+        import psycopg
         if cfg.dsn:
             return psycopg.connect(cfg.dsn)
-
         return psycopg.connect(
             host=cfg.host,
             port=cfg.port,
@@ -46,14 +59,9 @@ def create_postgres_connection(config: PostgresConnectionConfig | None = None) -
             sslmode=cfg.sslmode,
         )
     except ImportError:
-        pass
-
-    try:
-        import psycopg2  # type: ignore
-
+        import psycopg2
         if cfg.dsn:
             return psycopg2.connect(cfg.dsn)
-
         return psycopg2.connect(
             host=cfg.host,
             port=cfg.port,
@@ -62,7 +70,3 @@ def create_postgres_connection(config: PostgresConnectionConfig | None = None) -
             password=cfg.password,
             sslmode=cfg.sslmode,
         )
-    except ImportError as exc:
-        raise RuntimeError(
-            "PostgreSQL driver not installed. Install `psycopg` or `psycopg2-binary`."
-        ) from exc
