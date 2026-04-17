@@ -1,4 +1,4 @@
-  GNU nano 5.4                                                                                                                                                                                                               backend/storage/postgres_connection.py                                                                                                                                                                                                                         
+                                                                                                                                                                                                 backend/storage/postgres_connection.py                                                                                                                                                                                                                         
 from __future__ import annotations
 
 import os
