@@ -1,0 +1,50 @@
+export const designTokens = {
+  color: {
+    background: "#070b12",
+    backgroundMuted: "#0d1523",
+    surface: "#101b2d",
+    surfaceElevated: "#17263c",
+    surfaceGlass: "rgba(23, 38, 60, 0.74)",
+    border: "#2a3b56",
+    borderBright: "#4f79c7",
+    text: "#e7eefb",
+    textMuted: "#93a9cc",
+    accent: "#37b5ff",
+    accentStrong: "#1f90d8",
+    success: "#35d39d",
+    warn: "#ffc857",
+    danger: "#ff6b7a",
+    focus: "#7fd4ff",
+  },
+  typography: {
+    fontFamilySans: '"Space Grotesk", "Public Sans", "Segoe UI", sans-serif',
+    fontFamilyMono: '"IBM Plex Mono", "Cascadia Code", "SFMono-Regular", monospace',
+    sizeXs: "0.75rem",
+    sizeSm: "0.875rem",
+    sizeMd: "1rem",
+    sizeLg: "1.125rem",
+    sizeXl: "1.375rem",
+    size2xl: "1.75rem",
+  },
+  spacing: {
+    xs: "0.25rem",
+    sm: "0.5rem",
+    md: "0.75rem",
+    lg: "1rem",
+    xl: "1.5rem",
+    xxl: "2rem",
+  },
+  radius: {
+    sm: "0.5rem",
+    md: "0.75rem",
+    lg: "1rem",
+    xl: "1.25rem",
+  },
+  shadow: {
+    sm: "0 4px 14px rgba(6, 12, 25, 0.24)",
+    md: "0 10px 30px rgba(2, 8, 20, 0.34)",
+    glow: "0 0 0 1px rgba(55, 181, 255, 0.20), 0 0 28px rgba(55, 181, 255, 0.14)",
+  },
+} as const;
+
+export type DesignTokens = typeof designTokens;

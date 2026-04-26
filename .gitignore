@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# Node / Next.js
+node_modules/
+frontend/node_modules/
+.next/
+frontend/.next/
+
+# Logs / caches
+*.log
+.cache/
+
+# Local env files
+.env
+.env.local
+
+# Codex local state
+.codex/
