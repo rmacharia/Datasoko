@@ -333,5 +333,57 @@ class TestRunMigrationsCLI(unittest.TestCase):
         fake_conn.close.assert_called_once()
 
 
+# ─────────────────────────────────────────────
+# 5. Schema drift — ALTER TABLE coverage
+# ─────────────────────────────────────────────
+
+class TestMigration001SchemaDrift(unittest.TestCase):
+    def test_alter_statements_run_after_ddl(self) -> None:
+        """ALTER TABLE ADD COLUMN IF NOT EXISTS must execute for all expected columns."""
+        from backend.migrations.migration_001_multitenancy import run
+        conn = RecordingConnection()
+        run(conn)
+        all_sql = " ".join(q for q, _ in conn.executed)
+        self.assertIn("ALTER TABLE businesses ADD COLUMN IF NOT EXISTS organization_id", all_sql)
+        self.assertIn("ALTER TABLE businesses ADD COLUMN IF NOT EXISTS name", all_sql)
+        self.assertIn("ALTER TABLE businesses ADD COLUMN IF NOT EXISTS whatsapp_phone", all_sql)
+        self.assertIn("ALTER TABLE businesses ADD COLUMN IF NOT EXISTS created_at", all_sql)
+
+    def test_alter_covers_organizations_table(self) -> None:
+        from backend.migrations.migration_001_multitenancy import run
+        conn = RecordingConnection()
+        run(conn)
+        all_sql = " ".join(q for q, _ in conn.executed)
+        self.assertIn("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS name", all_sql)
+        self.assertIn("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS created_at", all_sql)
+
+    def test_alter_covers_subscriptions_table(self) -> None:
+        from backend.migrations.migration_001_multitenancy import run
+        conn = RecordingConnection()
+        run(conn)
+        all_sql = " ".join(q for q, _ in conn.executed)
+        self.assertIn("ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS plan", all_sql)
+        self.assertIn("ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS status", all_sql)
+        self.assertIn("ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS expiry_date", all_sql)
+
+    def test_alter_is_idempotent(self) -> None:
+        """Running migration twice must not fail — ALTER uses IF NOT EXISTS."""
+        from backend.migrations.migration_001_multitenancy import run
+        conn = RecordingConnection()
+        run(conn)
+        run(conn)
+        alter_stmts = [q for q, _ in conn.executed if q.startswith("ALTER TABLE")]
+        self.assertTrue(len(alter_stmts) >= 20, "Expected ALTER stmts from both runs")
+        for stmt in alter_stmts:
+            self.assertIn("IF NOT EXISTS", stmt)
+
+    def test_migration_still_does_not_commit(self) -> None:
+        """Even with ALTER statements, the migration must not commit."""
+        from backend.migrations.migration_001_multitenancy import run
+        conn = RecordingConnection()
+        run(conn)
+        self.assertEqual(conn.commit_count, 0)
+
+
 if __name__ == "__main__":
     unittest.main()

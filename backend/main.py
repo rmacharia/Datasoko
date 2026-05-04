@@ -438,7 +438,17 @@ def admin_status(_: None = Depends(_require_admin_token)) -> dict[str, Any]:
             if cur.fetchone() is None:
                 db_error = "schema not initialized — multitenancy tables missing (run migrations or apply manual SQL)"
             else:
-                db_connected = True
+                cur.execute(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_schema = 'public' AND table_name = 'businesses'"
+                )
+                existing_cols = {row[0] for row in cur.fetchall()}
+                required_cols = {"id", "organization_id", "name", "whatsapp_phone", "created_at"}
+                missing = required_cols - existing_cols
+                if missing:
+                    db_error = f"schema incomplete — businesses table missing columns: {', '.join(sorted(missing))}"
+                else:
+                    db_connected = True
     except Exception as exc:
         error_msg = str(exc)
         if "does not exist" in error_msg:

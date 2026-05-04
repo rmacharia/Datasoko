@@ -41,6 +41,19 @@ _DDL = [
     """,
 ]
 
+_ALTER_STATEMENTS = [
+    "ALTER TABLE organizations ADD COLUMN IF NOT EXISTS name TEXT",
+    "ALTER TABLE organizations ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()",
+    "ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS plan TEXT",
+    "ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS status TEXT",
+    "ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS expiry_date TIMESTAMPTZ",
+    "ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()",
+    "ALTER TABLE businesses ADD COLUMN IF NOT EXISTS organization_id TEXT NOT NULL DEFAULT 'default_org'",
+    "ALTER TABLE businesses ADD COLUMN IF NOT EXISTS name TEXT",
+    "ALTER TABLE businesses ADD COLUMN IF NOT EXISTS whatsapp_phone TEXT",
+    "ALTER TABLE businesses ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()",
+]
+
 _BACKFILL_SQL = """
 INSERT INTO businesses (id, organization_id)
 SELECT DISTINCT business_id, 'default_org'
@@ -61,6 +74,10 @@ def run(connection: Any) -> None:
     with connection.cursor() as cur:
         for sql in _DDL:
             cur.execute(sql.strip())
+
+        for sql in _ALTER_STATEMENTS:
+            cur.execute(sql)
+        logger.info("[migration_001] applied %d ALTER statements for schema drift", len(_ALTER_STATEMENTS))
 
         cur.execute(_TABLE_EXISTS_SQL)
         if cur.fetchone() is not None:

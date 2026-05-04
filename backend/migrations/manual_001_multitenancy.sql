@@ -38,6 +38,18 @@ CREATE TABLE IF NOT EXISTS businesses (
 CREATE INDEX IF NOT EXISTS idx_businesses_org
 ON businesses (organization_id);
 
+-- Schema drift: add any missing columns on existing tables
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS name TEXT;
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS plan TEXT;
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS status TEXT;
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS expiry_date TIMESTAMPTZ;
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS organization_id TEXT NOT NULL DEFAULT 'default_org';
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS name TEXT;
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS whatsapp_phone TEXT;
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
+
 -- Default org
 INSERT INTO organizations (id, name)
 VALUES ('default_org', 'Default Organization')
