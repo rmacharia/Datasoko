@@ -60,10 +60,23 @@ if "fastapi" not in sys.modules:
                 return fn
             return _decorator
 
+        def include_router(self, *args, **kwargs) -> None:  # noqa: ARG002, ANN001
+            return None
+
     def _identity(*args, **kwargs):  # noqa: ARG001, ANN001
         return None
 
+    class _APIRouter:
+        def __init__(self, *a, **kw): pass
+        def post(self, *a, **kw):
+            def _d(fn): return fn
+            return _d
+        def get(self, *a, **kw):
+            def _d(fn): return fn
+            return _d
+
     sys.modules["fastapi"] = types.SimpleNamespace(
+        APIRouter=_APIRouter,
         Depends=_identity,
         FastAPI=_FastAPI,
         File=_identity,

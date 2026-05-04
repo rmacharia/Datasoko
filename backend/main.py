@@ -44,6 +44,15 @@ app.add_middleware(
 )
 
 
+from backend.routes.onboarding import router as onboarding_router
+from backend.routes.businesses import router as businesses_router
+from backend.routes.billing import router as billing_router
+
+app.include_router(onboarding_router)
+app.include_router(businesses_router)
+app.include_router(billing_router)
+
+
 @app.on_event("startup")
 async def _run_migrations_on_startup() -> None:
     enabled = os.getenv("RUN_MIGRATIONS_ON_STARTUP", "false").lower() in {"1", "true", "yes"}
