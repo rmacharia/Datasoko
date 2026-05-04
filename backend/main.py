@@ -165,6 +165,10 @@ class WhatsAppTestSendRequest(BaseModel):
     message: str | None = Field(default=None, min_length=1, max_length=800)
 
 
+class TwilioTestSendRequest(BaseModel):
+    phone: str = Field(min_length=6, max_length=24)
+
+
 def _version_payload() -> dict[str, str]:
     return {
         "app_version": APP_VERSION,
@@ -309,6 +313,9 @@ def _settings_response() -> dict[str, Any]:
     ai["has_api_key"] = SETTINGS_STORE.has_secret("ai_api_key")
     whatsapp["has_access_token"] = SETTINGS_STORE.has_secret("whatsapp_access_token")
     whatsapp["has_webhook_verify_token"] = SETTINGS_STORE.has_secret("whatsapp_verify_token")
+    whatsapp["has_twilio_auth_token"] = SETTINGS_STORE.has_secret("twilio_auth_token")
+    whatsapp["twilio_account_sid"] = whatsapp.get("twilio_account_sid") or os.getenv("TWILIO_ACCOUNT_SID") or None
+    whatsapp["twilio_whatsapp_number"] = whatsapp.get("twilio_whatsapp_number") or os.getenv("TWILIO_WHATSAPP_NUMBER") or None
 
     return {
         "operational": non_secret.get("operational", {}),
@@ -880,6 +887,58 @@ def admin_whatsapp_test_send(payload: WhatsAppTestSendRequest, _: None = Depends
                 "detail": "Could not reach WhatsApp provider endpoint.",
             },
         }
+
+
+@app.post("/reports/send-test")
+def reports_send_test(payload: TwilioTestSendRequest, _: None = Depends(_require_admin_token)) -> dict[str, Any]:
+    phone = payload.phone.strip()
+    if not phone.startswith("+"):
+        raise HTTPException(status_code=400, detail="Phone number must start with '+' (e.g. +254700000000).")
+
+    account_sid = os.getenv("TWILIO_ACCOUNT_SID", "").strip()
+    auth_token = os.getenv("TWILIO_AUTH_TOKEN", "").strip()
+    from_number = os.getenv("TWILIO_WHATSAPP_NUMBER", "").strip()
+
+    missing = []
+    if not account_sid:
+        missing.append("TWILIO_ACCOUNT_SID")
+    if not auth_token:
+        missing.append("TWILIO_AUTH_TOKEN")
+    if not from_number:
+        missing.append("TWILIO_WHATSAPP_NUMBER")
+    if missing:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Twilio not configured. Missing environment variables: {', '.join(missing)}",
+        )
+
+    try:
+        from twilio.rest import Client  # type: ignore[import-untyped]
+
+        client = Client(account_sid, auth_token)
+        message = client.messages.create(
+            from_=from_number,
+            to=f"whatsapp:{phone}",
+            body="✅ DataSoko test message. WhatsApp integration is working.",
+        )
+        return {
+            "status": "sent",
+            "sid": message.sid,
+            "to_phone_masked": _mask_phone(phone),
+        }
+    except ImportError:
+        raise HTTPException(status_code=500, detail="Twilio SDK not installed. Run: pip install twilio")
+    except Exception as exc:
+        error_msg = str(exc)
+        if "authenticate" in error_msg.lower() or "credentials" in error_msg.lower():
+            detail = "Twilio authentication failed. Check TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN."
+        elif "not a valid phone number" in error_msg.lower() or "unverified" in error_msg.lower():
+            detail = f"Invalid or unverified phone number: {_mask_phone(phone)}. Ensure the number has joined the Twilio Sandbox."
+        elif "sandbox" in error_msg.lower():
+            detail = f"Phone {_mask_phone(phone)} has not joined the Twilio Sandbox. Send 'join <keyword>' to your sandbox number first."
+        else:
+            detail = f"Twilio send failed: {error_msg}"
+        raise HTTPException(status_code=502, detail=detail)
 
 
 def _compute_weekly_metrics(payload: WeeklyMetricsRequest) -> dict[str, Any]:

@@ -162,6 +162,9 @@ export type AdminSettingsResponse = {
     webhook_callback_url: string | null;
     has_access_token: boolean;
     has_webhook_verify_token: boolean;
+    twilio_account_sid: string | null;
+    twilio_whatsapp_number: string | null;
+    has_twilio_auth_token: boolean;
   };
 };
 
@@ -198,6 +201,47 @@ export type AdminSettingsUpdateRequest = {
 export type AdminWhatsAppTestSendResponse = {
   status: string;
   provider_response_summary: Record<string, unknown>;
+};
+
+// ── Dashboard enhanced-mode types ───────────────────────────────────────────
+
+export type RecentUpload = {
+  business_id: string;
+  timestamp: string;
+  status: "success" | "partial" | "failed";
+  record_count: number;
+  dataset: string;
+  week_start: string;
+  week_end: string;
+  quality_score?: number;
+  parsed_data?: Record<string, unknown>[];
+};
+
+export type RecentUploadsResponse = {
+  uploads: RecentUpload[];
+};
+
+export type WeeklyMetricsResponse = {
+  business_id: string;
+  week_start: string;
+  week_end: string;
+  revenue: number;
+  order_count: number;
+  avg_order_value: number;
+  top_product: string | null;
+  repeat_customers: number;
+  wow_revenue_delta: number | null;
+  wow_order_delta: number | null;
+};
+
+export type WhatsAppStatusResponse = {
+  last_sent: {
+    phone: string;
+    timestamp: string;
+    preview_text: string;
+    status: "delivered" | "sent" | "failed";
+    business_id: string;
+  } | null;
 };
 
 const DEFAULT_TIMEOUT_MS = 12_000;
@@ -432,6 +476,23 @@ export function sendAdminWhatsAppTest(
   });
 }
 
+export type TwilioTestSendResponse = {
+  status: string;
+  sid?: string;
+  to_phone_masked?: string;
+};
+
+export function sendTwilioTest(
+  token: string,
+  phone: string,
+): Promise<TwilioTestSendResponse> {
+  return apiRequest<TwilioTestSendResponse>("/reports/send-test", {
+    method: "POST",
+    token,
+    body: JSON.stringify({ phone }),
+  });
+}
+
 export function uploadAdminWeekly(request: AdminUploadWeeklyRequest): Promise<AdminUploadWeeklyResponse> {
   const formData = new FormData();
   formData.append("business_id", request.businessId);
@@ -502,4 +563,24 @@ function safeJsonParse(text: string): unknown {
   } catch {
     return { detail: text };
   }
+}
+
+// ── Dashboard enhanced-mode endpoints ───────────────────────────────────────
+
+export function getRecentUploads(token: string, limit = 5): Promise<RecentUploadsResponse> {
+  return apiRequest<RecentUploadsResponse>(`/admin/uploads/recent?limit=${limit}`, { method: "GET", token });
+}
+
+export function getWeeklyMetrics(
+  token: string,
+  businessId: string,
+): Promise<WeeklyMetricsResponse> {
+  return apiRequest<WeeklyMetricsResponse>(
+    `/metrics/weekly?business_id=${encodeURIComponent(businessId)}`,
+    { method: "GET", token },
+  );
+}
+
+export function getWhatsAppStatus(token: string): Promise<WhatsAppStatusResponse> {
+  return apiRequest<WhatsAppStatusResponse>("/admin/whatsapp/status", { method: "GET", token });
 }

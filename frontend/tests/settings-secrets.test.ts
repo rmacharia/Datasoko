@@ -23,13 +23,16 @@ describe("settings secrets safety", () => {
         has_api_key: true,
       },
       whatsapp: {
-        provider: "meta_cloud_api",
+        provider: "twilio_whatsapp",
         phone_number_id: "12345",
         business_account_id: null,
         sender_display_name: null,
         webhook_callback_url: "https://example.com/webhook",
         has_access_token: true,
         has_webhook_verify_token: true,
+        twilio_account_sid: "ACtest123",
+        twilio_whatsapp_number: "whatsapp:+14155238886",
+        has_twilio_auth_token: true,
       },
     };
 

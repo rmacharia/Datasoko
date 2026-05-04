@@ -64,6 +64,7 @@ SECRET_ENV_KEYS: dict[str, list[str]] = {
     "ai_api_key": ["AZURE_OPENAI_API_KEY", "OPENAI_API_KEY"],
     "whatsapp_access_token": ["WHATSAPP_ACCESS_TOKEN"],
     "whatsapp_verify_token": ["WHATSAPP_VERIFY_TOKEN"],
+    "twilio_auth_token": ["TWILIO_AUTH_TOKEN"],
 }
 
 
@@ -126,11 +127,13 @@ def default_non_secret_settings() -> dict[str, Any]:
             "azure_deployment": os.getenv("AZURE_OPENAI_DEPLOYMENT"),
         },
         "whatsapp": {
-            "provider": os.getenv("WHATSAPP_PROVIDER", "meta_cloud_api"),
+            "provider": os.getenv("WHATSAPP_PROVIDER", "twilio_whatsapp"),
             "phone_number_id": os.getenv("WHATSAPP_PHONE_NUMBER_ID"),
             "business_account_id": os.getenv("WHATSAPP_BUSINESS_ACCOUNT_ID"),
             "sender_display_name": os.getenv("WHATSAPP_SENDER_DISPLAY_NAME"),
             "webhook_callback_url": os.getenv("WHATSAPP_WEBHOOK_URL"),
+            "twilio_account_sid": os.getenv("TWILIO_ACCOUNT_SID"),
+            "twilio_whatsapp_number": os.getenv("TWILIO_WHATSAPP_NUMBER"),
         },
     }
 

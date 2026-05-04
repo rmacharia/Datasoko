@@ -20,6 +20,8 @@ export type SettingsFormDefaults = {
   whatsapp_webhook_callback_url: string;
   whatsapp_access_token: string;
   whatsapp_webhook_verify_token: string;
+  twilio_account_sid: string;
+  twilio_whatsapp_number: string;
 };
 
 export function toSettingsFormDefaults(payload: AdminSettingsResponse): SettingsFormDefaults {
@@ -36,12 +38,14 @@ export function toSettingsFormDefaults(payload: AdminSettingsResponse): Settings
     ai_strict_json_only: payload.ai.strict_json_only,
     ai_metrics_only_fallback: payload.ai.metrics_only_fallback,
     ai_api_key: "",
-    whatsapp_provider: payload.whatsapp.provider || "meta_cloud_api",
+    whatsapp_provider: payload.whatsapp.provider || "twilio_whatsapp",
     whatsapp_phone_number_id: payload.whatsapp.phone_number_id ?? "",
     whatsapp_business_account_id: payload.whatsapp.business_account_id ?? "",
     whatsapp_sender_display_name: payload.whatsapp.sender_display_name ?? "",
     whatsapp_webhook_callback_url: payload.whatsapp.webhook_callback_url ?? "",
     whatsapp_access_token: "",
     whatsapp_webhook_verify_token: "",
+    twilio_account_sid: payload.whatsapp.twilio_account_sid ?? "",
+    twilio_whatsapp_number: payload.whatsapp.twilio_whatsapp_number ?? "",
   };
 }

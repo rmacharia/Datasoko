@@ -12,6 +12,11 @@ import { StatusCard } from "@/components/status-card";
 import { SystemContext } from "@/components/system-context";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { RecentUploadsCard } from "@/components/overview/recent-uploads-card";
+import { MetricsSnapshotCard } from "@/components/overview/metrics-snapshot-card";
+import { ActivityTimelineCard } from "@/components/overview/activity-timeline-card";
+import { ExcelPreviewModal } from "@/components/overview/excel-preview-modal";
+import { WhatsAppStatusCard } from "@/components/overview/whatsapp-status-card";
 import {
   getAdminStatus,
   getBilling,
@@ -20,6 +25,7 @@ import {
   type AdminStatusResponse,
   type BillingResponse,
   type BusinessesResponse,
+  type RecentUpload,
 } from "@/lib/api";
 
 type LoadState<T> = {
@@ -43,6 +49,7 @@ export default function OverviewPage() {
   const [billingState, setBillingState] = useState<LoadState<BillingResponse>>({ loading: false, data: null, error: null });
   const [bizState, setBizState] = useState<LoadState<BusinessesResponse>>({ loading: false, data: null, error: null });
   const [onboardingChecked, setOnboardingChecked] = useState(false);
+  const [previewUpload, setPreviewUpload] = useState<RecentUpload | null>(null);
 
   useEffect(() => {
     if (!token) return;
@@ -217,99 +224,124 @@ export default function OverviewPage() {
 
           {/* Row 2: Operational cards — visible only in enhanced mode */}
           {effectiveEnhancedMode ? (
-            <section className="mt-4 grid gap-4 md:grid-cols-3">
-              <StatusCard
-                title="SME Summary"
-                status={bizState.error ? "error" : bizState.loading ? "warn" : "ok"}
-              >
-                {bizState.error ? (
-                  <ErrorBadge message="Data unavailable" />
-                ) : bizState.loading ? (
-                  <p className="muted">Loading...</p>
-                ) : (
-                  <dl className="space-y-1">
-                    <div>
-                      <dt className="inline muted">Total SMEs:</dt>{" "}
-                      <dd className="inline text-2xl font-bold tabular-nums text-[var(--accent)]">
-                        {bizState.data?.businesses.length ?? 0}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt className="inline muted">Active SME:</dt>{" "}
-                      <dd className="inline font-mono font-medium">{activeBusinessId}</dd>
-                    </div>
-                  </dl>
-                )}
-              </StatusCard>
+            <>
+              <section className="mt-4 grid gap-4 md:grid-cols-3">
+                <StatusCard
+                  title="SME Summary"
+                  status={bizState.error ? "error" : bizState.loading ? "warn" : "ok"}
+                >
+                  {bizState.error ? (
+                    <ErrorBadge message="Data unavailable" />
+                  ) : bizState.loading ? (
+                    <p className="muted">Loading...</p>
+                  ) : (
+                    <dl className="space-y-1">
+                      <div>
+                        <dt className="inline muted">Total SMEs:</dt>{" "}
+                        <dd className="inline text-2xl font-bold tabular-nums text-[var(--accent)]">
+                          {bizState.data?.businesses.length ?? 0}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="inline muted">Active SME:</dt>{" "}
+                        <dd className="inline font-mono font-medium">{activeBusinessId}</dd>
+                      </div>
+                    </dl>
+                  )}
+                </StatusCard>
 
-              <StatusCard
-                title="Billing Summary"
-                status={
-                  billingState.error ? "error"
-                  : billingState.loading ? "warn"
-                  : billingState.data?.active ? "ok"
-                  : "error"
-                }
-              >
-                {billingState.error ? (
-                  <ErrorBadge message="Data unavailable" />
-                ) : billingState.loading ? (
-                  <p className="muted">Loading...</p>
-                ) : billingState.data ? (
-                  <dl className="space-y-1">
-                    <div>
-                      <dt className="inline muted">Plan:</dt>{" "}
-                      <dd className="inline font-semibold capitalize">{billingState.data.plan ?? "—"}</dd>
-                    </div>
-                    <div>
-                      <dt className="inline muted">Status:</dt>{" "}
-                      <dd className={`inline font-semibold ${billingState.data.active ? "text-[var(--ok)]" : "text-[var(--danger)]"}`}>
-                        {billingState.data.status ?? "—"}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt className="inline muted">Days left:</dt>{" "}
-                      <dd className={`inline tabular-nums font-semibold ${billingState.data.days_remaining < 7 ? "text-[var(--warn)]" : ""}`}>
-                        {billingState.data.days_remaining}
-                      </dd>
-                      {billingState.data.days_remaining < 7 ? (
-                        <span className="ml-2 inline-flex items-center rounded-md bg-[rgba(255,200,87,0.18)] px-2 py-0.5 text-xs font-semibold text-[var(--warn)]">
-                          Expiring soon
-                        </span>
-                      ) : null}
-                    </div>
-                  </dl>
-                ) : null}
-              </StatusCard>
+                <StatusCard
+                  title="Billing Summary"
+                  status={
+                    billingState.error ? "error"
+                    : billingState.loading ? "warn"
+                    : billingState.data?.active ? "ok"
+                    : "error"
+                  }
+                >
+                  {billingState.error ? (
+                    <ErrorBadge message="Data unavailable" />
+                  ) : billingState.loading ? (
+                    <p className="muted">Loading...</p>
+                  ) : billingState.data ? (
+                    <dl className="space-y-1">
+                      <div>
+                        <dt className="inline muted">Plan:</dt>{" "}
+                        <dd className="inline font-semibold capitalize">{billingState.data.plan ?? "—"}</dd>
+                      </div>
+                      <div>
+                        <dt className="inline muted">Status:</dt>{" "}
+                        <dd className={`inline font-semibold ${billingState.data.active ? "text-[var(--ok)]" : "text-[var(--danger)]"}`}>
+                          {billingState.data.status ?? "—"}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="inline muted">Days left:</dt>{" "}
+                        <dd className={`inline tabular-nums font-semibold ${billingState.data.days_remaining < 7 ? "text-[var(--warn)]" : ""}`}>
+                          {billingState.data.days_remaining}
+                        </dd>
+                        {billingState.data.days_remaining < 7 ? (
+                          <span className="ml-2 inline-flex items-center rounded-md bg-[rgba(255,200,87,0.18)] px-2 py-0.5 text-xs font-semibold text-[var(--warn)]">
+                            Expiring soon
+                          </span>
+                        ) : null}
+                      </div>
+                    </dl>
+                  ) : null}
+                </StatusCard>
 
-              <StatusCard
-                title="Activity"
-                status={bizState.error && billingState.error ? "error" : "ok"}
-              >
-                {bizState.error && billingState.error ? (
-                  <ErrorBadge message="Data unavailable" />
-                ) : (
-                  <dl className="space-y-1">
-                    <div>
-                      <dt className="inline muted">Last SME added:</dt>{" "}
-                      <dd className="inline font-medium">
-                        {lastSmeAdded ? `${lastSmeAdded.id} (${new Date(lastSmeAdded.created_at).toLocaleDateString()})` : "—"}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt className="inline muted">Last upload:</dt>{" "}
-                      <dd className="inline font-medium muted">—</dd>
-                    </div>
-                    <div>
-                      <dt className="inline muted">Last report:</dt>{" "}
-                      <dd className="inline font-medium muted">—</dd>
-                    </div>
-                  </dl>
-                )}
-              </StatusCard>
-            </section>
+                <StatusCard
+                  title="Activity"
+                  status={bizState.error && billingState.error ? "error" : "ok"}
+                >
+                  {bizState.error && billingState.error ? (
+                    <ErrorBadge message="Data unavailable" />
+                  ) : (
+                    <dl className="space-y-1">
+                      <div>
+                        <dt className="inline muted">Last SME added:</dt>{" "}
+                        <dd className="inline font-medium">
+                          {lastSmeAdded ? `${lastSmeAdded.id} (${new Date(lastSmeAdded.created_at).toLocaleDateString()})` : "—"}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="inline muted">Last upload:</dt>{" "}
+                        <dd className="inline font-medium muted">—</dd>
+                      </div>
+                      <div>
+                        <dt className="inline muted">Last report:</dt>{" "}
+                        <dd className="inline font-medium muted">—</dd>
+                      </div>
+                    </dl>
+                  )}
+                </StatusCard>
+              </section>
+
+              {/* Row 3: Analytics cockpit — enhanced mode only */}
+              <div className="mt-6 mb-2">
+                <h2 className="text-xl font-semibold">Analytics Cockpit</h2>
+                <p className="mt-1 text-sm muted">Live metrics, upload activity, and delivery status.</p>
+              </div>
+
+              <section className="mt-2 grid gap-4 md:grid-cols-2">
+                <MetricsSnapshotCard />
+                <RecentUploadsCard onSelectUpload={setPreviewUpload} />
+              </section>
+
+              <section className="mt-4 grid gap-4 md:grid-cols-2">
+                <ActivityTimelineCard />
+                <WhatsAppStatusCard />
+              </section>
+            </>
           ) : null}
         </motion.section>
+
+        {previewUpload ? (
+          <ExcelPreviewModal
+            upload={previewUpload}
+            onClose={() => setPreviewUpload(null)}
+          />
+        ) : null}
       </main>
     </AuthGuard>
   );

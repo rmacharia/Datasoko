@@ -22,6 +22,7 @@ import {
   getBusinesses,
   isApiError,
   sendAdminWhatsAppTest,
+  sendTwilioTest,
   updateAdminSettings,
   type AdminSettingsResponse,
   type BillingResponse,
@@ -46,9 +47,11 @@ const settingsSchema = z.object({
   whatsapp_phone_number_id: z.string().optional(),
   whatsapp_business_account_id: z.string().optional(),
   whatsapp_sender_display_name: z.string().optional(),
-  whatsapp_webhook_callback_url: z.string().url("Use a valid URL.").or(z.literal("")),
+  whatsapp_webhook_callback_url: z.string().url("Use a valid URL.").or(z.literal("")).optional(),
   whatsapp_access_token: z.string().optional(),
   whatsapp_webhook_verify_token: z.string().optional(),
+  twilio_account_sid: z.string().optional(),
+  twilio_whatsapp_number: z.string().optional(),
 });
 
 const testSendSchema = z.object({
@@ -76,6 +79,8 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(false);
   const [settingsState, setSettingsState] = useState<AdminSettingsResponse | null>(null);
   const [testSummary, setTestSummary] = useState<string | null>(null);
+  const [testStatus, setTestStatus] = useState<"idle" | "sending" | "success" | "error">("idle");
+  const [testError, setTestError] = useState<string | null>(null);
 
   const [billing, setBilling] = useState<BillingResponse | null>(null);
   const [billingLoading, setBillingLoading] = useState(false);
@@ -106,13 +111,15 @@ export default function SettingsPage() {
       ai_strict_json_only: true,
       ai_metrics_only_fallback: true,
       ai_api_key: "",
-      whatsapp_provider: "meta_cloud_api",
+      whatsapp_provider: "twilio_whatsapp",
       whatsapp_phone_number_id: "",
       whatsapp_business_account_id: "",
       whatsapp_sender_display_name: "",
       whatsapp_webhook_callback_url: "",
       whatsapp_access_token: "",
       whatsapp_webhook_verify_token: "",
+      twilio_account_sid: "",
+      twilio_whatsapp_number: "",
     },
   });
 
@@ -251,13 +258,27 @@ export default function SettingsPage() {
       return;
     }
     setError(null);
+    setTestStatus("sending");
+    setTestError(null);
+    setTestSummary(null);
+
+    const provider = settingsForm.getValues("whatsapp_provider");
+
     try {
-      const result = await sendAdminWhatsAppTest(token, {
-        to_phone: values.to_phone,
-        message: "DataSoko internal integration test message. No business data included.",
-      });
-      setTestSummary(JSON.stringify(result.provider_response_summary, null, 2));
-      pushToast(`Test send status: ${result.status}`, result.status === "sent" ? "success" : "warning");
+      if (provider === "twilio_whatsapp") {
+        const result = await sendTwilioTest(token, values.to_phone);
+        setTestSummary(JSON.stringify(result, null, 2));
+        setTestStatus("success");
+        pushToast("Message sent via Twilio", "success");
+      } else {
+        const result = await sendAdminWhatsAppTest(token, {
+          to_phone: values.to_phone,
+          message: "DataSoko internal integration test message. No business data included.",
+        });
+        setTestSummary(JSON.stringify(result.provider_response_summary, null, 2));
+        setTestStatus(result.status === "sent" ? "success" : "error");
+        pushToast(`Test send status: ${result.status}`, result.status === "sent" ? "success" : "warning");
+      }
     } catch (requestError) {
       if (isApiError(requestError) && requestError.status === 401) {
         logout();
@@ -265,8 +286,9 @@ export default function SettingsPage() {
         return;
       }
       const message = isApiError(requestError) ? requestError.message : "Failed to send WhatsApp test.";
-      setError(message);
-      pushToast(message, "danger");
+      setTestStatus("error");
+      setTestError(message);
+      pushToast(`Failed: ${message}`, "danger");
     }
   });
 
@@ -544,57 +566,115 @@ export default function SettingsPage() {
                   {...settingsForm.register("whatsapp_provider")}
                   className="mt-1 w-full rounded-md border border-[var(--border)] bg-[rgba(11,21,37,0.9)] px-3 py-2 text-sm"
                 >
-                  <option value="meta_cloud_api">Meta Cloud API</option>
-                  <option value="twilio_whatsapp">Twilio WhatsApp (future)</option>
+                  <option value="twilio_whatsapp">Twilio WhatsApp (Active)</option>
+                  <option value="meta_cloud_api" disabled>Meta Cloud API (Coming Soon)</option>
                 </select>
-              </label>
-              <label className="text-sm font-medium">
-                Phone Number ID
-                <Input {...settingsForm.register("whatsapp_phone_number_id")} />
-              </label>
-              <label className="text-sm font-medium">
-                Business Account ID
-                <Input {...settingsForm.register("whatsapp_business_account_id")} />
               </label>
               <label className="text-sm font-medium">
                 Sender Display Name
                 <Input {...settingsForm.register("whatsapp_sender_display_name")} />
               </label>
-              <label className="text-sm font-medium md:col-span-2">
-                Webhook Callback URL
-                <Input {...settingsForm.register("whatsapp_webhook_callback_url")} />
-              </label>
-              <label className="text-sm font-medium">
-                Access Token {settingsState?.whatsapp.has_access_token ? <span className="muted">(saved)</span> : null}
-                <Input type="password" autoComplete="new-password" {...settingsForm.register("whatsapp_access_token")} />
-              </label>
-              <label className="text-sm font-medium">
-                Webhook Verify Token{" "}
-                {settingsState?.whatsapp.has_webhook_verify_token ? <span className="muted">(saved)</span> : null}
-                <Input
-                  type="password"
-                  autoComplete="new-password"
-                  {...settingsForm.register("whatsapp_webhook_verify_token")}
-                />
-              </label>
             </div>
 
+            {settingsForm.watch("whatsapp_provider") === "twilio_whatsapp" ? (
+              <div className="mt-4">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <label className="text-sm font-medium">
+                    Account SID
+                    <Input
+                      value={settingsState?.whatsapp.twilio_account_sid ?? ""}
+                      readOnly
+                      className="mt-1 opacity-70"
+                      placeholder="From Azure environment"
+                    />
+                    <p className="mt-1 text-[10px] muted">Read-only. Set via TWILIO_ACCOUNT_SID env var.</p>
+                  </label>
+                  <label className="text-sm font-medium">
+                    Auth Token
+                    <Input
+                      value={settingsState?.whatsapp.has_twilio_auth_token ? "********" : ""}
+                      readOnly
+                      className="mt-1 opacity-70"
+                      placeholder="From Azure environment"
+                    />
+                    <p className="mt-1 text-[10px] muted">Read-only. Set via TWILIO_AUTH_TOKEN env var.</p>
+                  </label>
+                  <label className="text-sm font-medium">
+                    WhatsApp Number
+                    <Input
+                      value={settingsState?.whatsapp.twilio_whatsapp_number ?? ""}
+                      readOnly
+                      className="mt-1 opacity-70"
+                      placeholder="From Azure environment"
+                    />
+                    <p className="mt-1 text-[10px] muted">Read-only. Set via TWILIO_WHATSAPP_NUMBER env var.</p>
+                  </label>
+                </div>
+                <div className="mt-4 rounded-md border border-[var(--border)] bg-[rgba(55,181,255,0.06)] px-4 py-3">
+                  <p className="text-xs text-[var(--accent)]">
+                    Credentials are securely managed via Azure App Service environment variables.
+                    To update, change the values in Azure Portal &rarr; App Service &rarr; Configuration.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="mt-4 grid gap-4 md:grid-cols-2">
+                <label className="text-sm font-medium">
+                  Phone Number ID
+                  <Input {...settingsForm.register("whatsapp_phone_number_id")} />
+                </label>
+                <label className="text-sm font-medium">
+                  Business Account ID
+                  <Input {...settingsForm.register("whatsapp_business_account_id")} />
+                </label>
+                <label className="text-sm font-medium md:col-span-2">
+                  Webhook Callback URL
+                  <Input {...settingsForm.register("whatsapp_webhook_callback_url")} />
+                </label>
+                <label className="text-sm font-medium">
+                  Access Token {settingsState?.whatsapp.has_access_token ? <span className="muted">(saved)</span> : null}
+                  <Input type="password" autoComplete="new-password" {...settingsForm.register("whatsapp_access_token")} />
+                </label>
+                <label className="text-sm font-medium">
+                  Webhook Verify Token{" "}
+                  {settingsState?.whatsapp.has_webhook_verify_token ? <span className="muted">(saved)</span> : null}
+                  <Input
+                    type="password"
+                    autoComplete="new-password"
+                    {...settingsForm.register("whatsapp_webhook_verify_token")}
+                  />
+                </label>
+              </div>
+            )}
+
             <div className="mt-6 border-t border-[var(--border)] pt-5">
-              <h3 className="text-base font-semibold">Test Send</h3>
+              <h3 className="text-base font-semibold">Send Test Message</h3>
+              <p className="mt-1 text-xs muted">
+                {settingsForm.watch("whatsapp_provider") === "twilio_whatsapp"
+                  ? "Sends a test WhatsApp message via Twilio. The recipient must have joined the Twilio Sandbox."
+                  : "Sends a test message via Meta Cloud API."}
+              </p>
               <form className="mt-3 grid gap-3 md:grid-cols-2" onSubmit={onTestSend}>
                 <label className="text-sm font-medium">
-                  Test Destination Phone
+                  Destination Phone
                   <Input {...testSendForm.register("to_phone")} placeholder="+254700000000" />
                 </label>
-                <p className="text-sm muted md:col-span-2">
-                  Template: DataSoko internal integration test message. No business data included.
-                </p>
-                <div className="md:col-span-2">
-                  <Button type="submit" variant="secondary" disabled={testSendForm.formState.isSubmitting}>
-                    {testSendForm.formState.isSubmitting ? "Sending..." : "Send Test Message"}
+                <div className="md:col-span-2 flex items-center gap-3">
+                  <Button type="submit" variant="secondary" disabled={testStatus === "sending"}>
+                    {testStatus === "sending" ? "Sending..." : "Send Test Message"}
                   </Button>
+                  {testStatus === "success" ? (
+                    <span className="inline-flex items-center gap-1.5 rounded-md bg-[rgba(53,211,157,0.14)] px-3 py-1.5 text-xs font-semibold text-[var(--ok)]">
+                      Message sent
+                    </span>
+                  ) : null}
                 </div>
               </form>
+              {testError ? (
+                <div className="mt-3 rounded-md border border-[rgba(255,107,122,0.3)] bg-[rgba(255,107,122,0.08)] px-4 py-3">
+                  <p className="text-xs font-semibold text-[var(--danger)]">{testError}</p>
+                </div>
+              ) : null}
               {testSummary ? <pre className="code-panel mt-3 overflow-auto p-3 text-xs">{testSummary}</pre> : null}
             </div>
           </section>
