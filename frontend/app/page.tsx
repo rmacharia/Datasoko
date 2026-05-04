@@ -47,7 +47,7 @@ type LoadState<T> = {
 
 export default function OverviewPage() {
   const router = useRouter();
-  const { token } = useAuth();
+  const { token, user, isReady, isAuthenticated } = useAuth();
   const { organizationId, activeBusinessId } = useOrg();
   const { effectiveEnhancedMode } = useSettings();
   const prefersReducedMotion = useReducedMotion();
@@ -70,9 +70,9 @@ export default function OverviewPage() {
   const [schedulesState, setSchedulesState] = useState<LoadState<Schedule[]>>({ loading: false, data: null, error: null });
 
   useEffect(() => {
-    if (!token) return;
+    if (!isReady || !isAuthenticated || !user) return;
     let mounted = true;
-    getBilling(organizationId)
+    getBilling(user.organization_id)
       .then(() => { if (mounted) setOnboardingChecked(true); })
       .catch((err) => {
         if (!mounted) return;
@@ -83,7 +83,7 @@ export default function OverviewPage() {
         setOnboardingChecked(true);
       });
     return () => { mounted = false; };
-  }, [token, organizationId, router]);
+  }, [isReady, isAuthenticated, user, router]);
 
   const load = useCallback(async () => {
     if (!token) return;

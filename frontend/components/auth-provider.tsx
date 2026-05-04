@@ -1,15 +1,16 @@
 "use client";
 
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 
 import type { AuthUser } from "@/lib/api";
-import { clearStoredToken, readStoredToken, readStoredUser, writeStoredToken, writeStoredUser, clearStoredUser } from "@/lib/auth";
+import { clearStoredToken, clearStoredUser, readStoredToken, readStoredUser, writeStoredToken, writeStoredUser } from "@/lib/auth";
 
 type AuthContextValue = {
   token: string | null;
   user: AuthUser | null;
   isReady: boolean;
-  login: (token: string, user: AuthUser, rememberInSession: boolean) => void;
+  isAuthenticated: boolean;
+  login: (token: string, user: AuthUser) => void;
   logout: () => void;
 };
 
@@ -23,13 +24,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const storedToken = readStoredToken();
     const storedUser = readStoredUser();
-    if (storedToken) {
+    if (storedToken && storedUser) {
       setToken(storedToken);
-    }
-    if (storedUser) {
       setUser(storedUser);
     }
     setIsReady(true);
+  }, []);
+
+  const login = useCallback((nextToken: string, nextUser: AuthUser) => {
+    const trimmed = nextToken.trim();
+    setToken(trimmed);
+    setUser(nextUser);
+    writeStoredToken(trimmed);
+    writeStoredUser(nextUser);
+  }, []);
+
+  const logout = useCallback(() => {
+    setToken(null);
+    setUser(null);
+    clearStoredToken();
+    clearStoredUser();
   }, []);
 
   const value = useMemo<AuthContextValue>(
@@ -37,26 +51,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       token,
       user,
       isReady,
-      login: (nextToken: string, nextUser: AuthUser, rememberInSession: boolean) => {
-        const trimmed = nextToken.trim();
-        setToken(trimmed);
-        setUser(nextUser);
-        if (rememberInSession) {
-          writeStoredToken(trimmed);
-          writeStoredUser(nextUser);
-        } else {
-          clearStoredToken();
-          clearStoredUser();
-        }
-      },
-      logout: () => {
-        setToken(null);
-        setUser(null);
-        clearStoredToken();
-        clearStoredUser();
-      },
+      isAuthenticated: !!token,
+      login,
+      logout,
     }),
-    [isReady, token, user],
+    [isReady, token, user, login, logout],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -1,12 +1,11 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
-
-import Link from "next/link";
 
 import { useAuth } from "@/components/auth-provider";
 import { useToast } from "@/components/toast-provider";
@@ -17,14 +16,13 @@ import { authLogin, isApiError } from "@/lib/api";
 const loginSchema = z.object({
   email: z.string().email("Enter a valid email address."),
   password: z.string().min(6, "Password must be at least 6 characters."),
-  remember: z.boolean().default(true),
 });
 
 type LoginForm = z.infer<typeof loginSchema>;
 
 export default function LoginPage() {
   const router = useRouter();
-  const { token, login, isReady } = useAuth();
+  const { isAuthenticated, isReady, login } = useAuth();
   const { pushToast } = useToast();
   const [error, setError] = useState<string | null>(null);
 
@@ -34,20 +32,20 @@ export default function LoginPage() {
     formState: { errors, isSubmitting },
   } = useForm<LoginForm>({
     resolver: zodResolver(loginSchema),
-    defaultValues: { email: "", password: "", remember: true },
+    defaultValues: { email: "", password: "" },
   });
 
   useEffect(() => {
-    if (isReady && token) {
+    if (isReady && isAuthenticated) {
       router.replace("/");
     }
-  }, [isReady, router, token]);
+  }, [isReady, isAuthenticated, router]);
 
   const onSubmit = async (values: LoginForm) => {
     setError(null);
     try {
       const response = await authLogin({ email: values.email, password: values.password });
-      login(response.access_token, response.user, values.remember);
+      login(response.access_token, response.user);
       pushToast(`Welcome, ${response.user.email}`, "success");
       router.replace(response.user.role === "sme" ? "/reports" : "/");
     } catch (err) {
@@ -102,11 +100,6 @@ export default function LoginPage() {
               <p className="mt-1 text-sm text-[var(--danger)]">{errors.password.message}</p>
             ) : null}
           </div>
-
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" {...register("remember")} />
-            Keep me signed in this session
-          </label>
 
           {error ? (
             <div className="rounded-md border border-[rgba(255,107,122,0.3)] bg-[rgba(255,107,122,0.08)] px-4 py-2">

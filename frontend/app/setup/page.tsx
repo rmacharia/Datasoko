@@ -65,7 +65,7 @@ export default function SetupPage() {
         password: values.password,
         organization_id: values.organization_id,
       });
-      login(response.access_token, response.user, true);
+      login(response.access_token, response.user);
       pushToast("System initialized! Welcome, admin.", "success");
       router.replace("/");
     } catch (err) {
