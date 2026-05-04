@@ -244,6 +244,48 @@ export type WhatsAppStatusResponse = {
   } | null;
 };
 
+// ── Analytics types ─────────────────────────────────────────────────────────
+
+export type AnalyticsTrendPoint = {
+  date: string;
+  value: number;
+};
+
+export type AnalyticsMetricsResponse = {
+  revenue_trend: AnalyticsTrendPoint[];
+  expenses_trend: AnalyticsTrendPoint[];
+  profit_trend: AnalyticsTrendPoint[];
+  totals: {
+    revenue: number;
+    expenses: number;
+    profit: number;
+  };
+};
+
+export type AnalyticsUpload = {
+  file_name: string;
+  dataset: string;
+  rows: number;
+  quality_score: number | null;
+  uploaded_at: string;
+  status: string;
+  week_start: string;
+  week_end: string;
+};
+
+export type AnalyticsWhatsAppStats = {
+  total_sent: number;
+  last_sent: string | null;
+  success_rate: number;
+};
+
+export type AnalyticsActivity = {
+  type: "upload" | "report" | "whatsapp" | "error";
+  message: string;
+  status: "success" | "failed";
+  timestamp: string;
+};
+
 const DEFAULT_TIMEOUT_MS = 12_000;
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -583,4 +625,50 @@ export function getWeeklyMetrics(
 
 export function getWhatsAppStatus(token: string): Promise<WhatsAppStatusResponse> {
   return apiRequest<WhatsAppStatusResponse>("/admin/whatsapp/status", { method: "GET", token });
+}
+
+// ── Analytics endpoints ─────────────────────────────────────────────────────
+
+export function getAnalyticsMetrics(
+  token: string,
+  params: { organizationId: string; businessId: string },
+): Promise<AnalyticsMetricsResponse> {
+  const query = new URLSearchParams({
+    organization_id: params.organizationId,
+    business_id: params.businessId,
+  });
+  return apiRequest<AnalyticsMetricsResponse>(`/analytics/metrics?${query}`, { method: "GET", token });
+}
+
+export function getAnalyticsUploads(
+  token: string,
+  params: { organizationId: string; businessId: string },
+): Promise<AnalyticsUpload[]> {
+  const query = new URLSearchParams({
+    organization_id: params.organizationId,
+    business_id: params.businessId,
+  });
+  return apiRequest<AnalyticsUpload[]>(`/analytics/uploads?${query}`, { method: "GET", token });
+}
+
+export function getAnalyticsWhatsApp(
+  token: string,
+  params: { organizationId: string; businessId: string },
+): Promise<AnalyticsWhatsAppStats> {
+  const query = new URLSearchParams({
+    organization_id: params.organizationId,
+    business_id: params.businessId,
+  });
+  return apiRequest<AnalyticsWhatsAppStats>(`/analytics/whatsapp?${query}`, { method: "GET", token });
+}
+
+export function getAnalyticsActivity(
+  token: string,
+  params: { organizationId: string; businessId: string },
+): Promise<AnalyticsActivity[]> {
+  const query = new URLSearchParams({
+    organization_id: params.organizationId,
+    business_id: params.businessId,
+  });
+  return apiRequest<AnalyticsActivity[]>(`/analytics/activity?${query}`, { method: "GET", token });
 }

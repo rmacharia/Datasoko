@@ -47,10 +47,12 @@ app.add_middleware(
 from backend.routes.onboarding import router as onboarding_router
 from backend.routes.businesses import router as businesses_router
 from backend.routes.billing import router as billing_router
+from backend.routes.analytics import router as analytics_router
 
 app.include_router(onboarding_router)
 app.include_router(businesses_router)
 app.include_router(billing_router)
+app.include_router(analytics_router)
 
 
 @app.on_event("startup")
@@ -645,6 +647,18 @@ async def admin_upload_weekly(
                 "mpesa": mpesa_response["summary"] if mpesa_response else None,
             }
         )
+        from backend.routes.analytics import log_activity
+        datasets = []
+        if excel_response:
+            datasets.append(f"excel ({excel_response['summary']['row_count']} rows)")
+        if mpesa_response:
+            datasets.append(f"mpesa ({mpesa_response['summary']['row_count']} rows)")
+        log_activity(
+            business_id=business_id,
+            event_type="upload",
+            message=f"Data uploaded: {', '.join(datasets)}",
+            status="success",
+        )
         return response
     except HTTPException:
         raise
@@ -753,10 +767,24 @@ def admin_generate_report(payload: AdminGenerateReportRequest, _: None = Depends
                 "result_summary": job["result_summary"],
             }
         )
+        from backend.routes.analytics import log_activity
+        log_activity(
+            business_id=payload.business_id,
+            event_type="report",
+            message=f"Report generated — revenue: {metrics.get('weekly_revenue')}",
+            status="success",
+        )
     except Exception as exc:
         job["status"] = "failed"
         job["finished_at"] = datetime.now(timezone.utc).isoformat()
         job["error"] = str(exc)
+        from backend.routes.analytics import log_activity
+        log_activity(
+            business_id=payload.business_id,
+            event_type="error",
+            message=f"Report generation failed: {str(exc)[:100]}",
+            status="failed",
+        )
 
     return {
         "job_id": job_id,
@@ -914,12 +942,27 @@ def reports_send_test(payload: TwilioTestSendRequest, _: None = Depends(_require
 
     try:
         from twilio.rest import Client  # type: ignore[import-untyped]
+        from backend.routes.analytics import log_activity, log_whatsapp_message
 
         client = Client(account_sid, auth_token)
         message = client.messages.create(
             from_=from_number,
             to=f"whatsapp:{phone}",
             body="✅ DataSoko test message. WhatsApp integration is working.",
+        )
+        log_whatsapp_message(
+            business_id="system",
+            phone=phone,
+            status="sent",
+            message_preview="DataSoko test message",
+            provider="twilio",
+            provider_sid=message.sid,
+        )
+        log_activity(
+            business_id="system",
+            event_type="whatsapp",
+            message=f"Test WhatsApp sent to {_mask_phone(phone)}",
+            status="success",
         )
         return {
             "status": "sent",
@@ -929,7 +972,21 @@ def reports_send_test(payload: TwilioTestSendRequest, _: None = Depends(_require
     except ImportError:
         raise HTTPException(status_code=500, detail="Twilio SDK not installed. Run: pip install twilio")
     except Exception as exc:
+        from backend.routes.analytics import log_activity, log_whatsapp_message
         error_msg = str(exc)
+        log_whatsapp_message(
+            business_id="system",
+            phone=phone,
+            status="failed",
+            provider="twilio",
+            error_detail=error_msg[:200],
+        )
+        log_activity(
+            business_id="system",
+            event_type="whatsapp",
+            message=f"WhatsApp send failed to {_mask_phone(phone)}",
+            status="failed",
+        )
         if "authenticate" in error_msg.lower() or "credentials" in error_msg.lower():
             detail = "Twilio authentication failed. Check TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN."
         elif "not a valid phone number" in error_msg.lower() or "unverified" in error_msg.lower():

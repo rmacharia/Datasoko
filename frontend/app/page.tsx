@@ -12,20 +12,27 @@ import { StatusCard } from "@/components/status-card";
 import { SystemContext } from "@/components/system-context";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { RecentUploadsCard } from "@/components/overview/recent-uploads-card";
-import { MetricsSnapshotCard } from "@/components/overview/metrics-snapshot-card";
-import { ActivityTimelineCard } from "@/components/overview/activity-timeline-card";
-import { ExcelPreviewModal } from "@/components/overview/excel-preview-modal";
-import { WhatsAppStatusCard } from "@/components/overview/whatsapp-status-card";
+import { MetricsChart } from "@/components/analytics/metrics-chart";
+import { SummaryCards } from "@/components/analytics/summary-cards";
+import { UploadsTable } from "@/components/analytics/uploads-table";
+import { WhatsAppStats } from "@/components/analytics/whatsapp-stats";
+import { ActivityTimeline } from "@/components/analytics/activity-timeline";
 import {
   getAdminStatus,
+  getAnalyticsActivity,
+  getAnalyticsMetrics,
+  getAnalyticsUploads,
+  getAnalyticsWhatsApp,
   getBilling,
   getBusinesses,
   isApiError,
   type AdminStatusResponse,
+  type AnalyticsActivity,
+  type AnalyticsMetricsResponse,
+  type AnalyticsUpload,
+  type AnalyticsWhatsAppStats,
   type BillingResponse,
   type BusinessesResponse,
-  type RecentUpload,
 } from "@/lib/api";
 
 type LoadState<T> = {
@@ -49,7 +56,12 @@ export default function OverviewPage() {
   const [billingState, setBillingState] = useState<LoadState<BillingResponse>>({ loading: false, data: null, error: null });
   const [bizState, setBizState] = useState<LoadState<BusinessesResponse>>({ loading: false, data: null, error: null });
   const [onboardingChecked, setOnboardingChecked] = useState(false);
-  const [previewUpload, setPreviewUpload] = useState<RecentUpload | null>(null);
+
+  // Analytics state
+  const [analyticsMetrics, setAnalyticsMetrics] = useState<LoadState<AnalyticsMetricsResponse>>({ loading: false, data: null, error: null });
+  const [analyticsUploads, setAnalyticsUploads] = useState<LoadState<AnalyticsUpload[]>>({ loading: false, data: null, error: null });
+  const [analyticsWhatsApp, setAnalyticsWhatsApp] = useState<LoadState<AnalyticsWhatsAppStats>>({ loading: false, data: null, error: null });
+  const [analyticsActivity, setAnalyticsActivity] = useState<LoadState<AnalyticsActivity[]>>({ loading: false, data: null, error: null });
 
   useEffect(() => {
     if (!token) return;
@@ -91,9 +103,43 @@ export default function OverviewPage() {
     }
   }, [token, organizationId]);
 
+  const loadAnalytics = useCallback(async () => {
+    if (!token) return;
+
+    const params = { organizationId, businessId: activeBusinessId };
+
+    setAnalyticsMetrics({ loading: true, data: null, error: null });
+    setAnalyticsUploads({ loading: true, data: null, error: null });
+    setAnalyticsWhatsApp({ loading: true, data: null, error: null });
+    setAnalyticsActivity({ loading: true, data: null, error: null });
+
+    try {
+      const [metrics, uploads, whatsapp, activity] = await Promise.all([
+        getAnalyticsMetrics(token, params),
+        getAnalyticsUploads(token, params),
+        getAnalyticsWhatsApp(token, params),
+        getAnalyticsActivity(token, params),
+      ]);
+      setAnalyticsMetrics({ loading: false, data: metrics, error: null });
+      setAnalyticsUploads({ loading: false, data: uploads, error: null });
+      setAnalyticsWhatsApp({ loading: false, data: whatsapp, error: null });
+      setAnalyticsActivity({ loading: false, data: activity, error: null });
+    } catch (err) {
+      const msg = isApiError(err) ? err.message : "Failed to load analytics.";
+      setAnalyticsMetrics((prev) => prev.data ? prev : { loading: false, data: null, error: msg });
+      setAnalyticsUploads((prev) => prev.data ? prev : { loading: false, data: null, error: msg });
+      setAnalyticsWhatsApp((prev) => prev.data ? prev : { loading: false, data: null, error: msg });
+      setAnalyticsActivity((prev) => prev.data ? prev : { loading: false, data: null, error: msg });
+    }
+  }, [token, organizationId, activeBusinessId]);
+
   useEffect(() => {
     if (onboardingChecked) void load();
   }, [load, onboardingChecked]);
+
+  useEffect(() => {
+    if (onboardingChecked && effectiveEnhancedMode) void loadAnalytics();
+  }, [loadAnalytics, onboardingChecked, effectiveEnhancedMode]);
 
   const pageStatus = useMemo(() => {
     if (statusState.error) return "error" as const;
@@ -149,7 +195,7 @@ export default function OverviewPage() {
               <h2 className="text-xl font-semibold">Live Runtime Status</h2>
               <p className="mt-1 text-sm muted">Internal run-state visibility. No customer-facing views.</p>
             </div>
-            <Button variant="secondary" onClick={() => void load()}>
+            <Button variant="secondary" onClick={() => { void load(); void loadAnalytics(); }}>
               Refresh
             </Button>
           </div>
@@ -222,7 +268,7 @@ export default function OverviewPage() {
             </StatusCard>
           </section>
 
-          {/* Row 2: Operational cards — visible only in enhanced mode */}
+          {/* Row 2+: Analytics Cockpit — visible only in enhanced mode */}
           {effectiveEnhancedMode ? (
             <>
               <section className="mt-4 grid gap-4 md:grid-cols-3">
@@ -306,42 +352,97 @@ export default function OverviewPage() {
                       </div>
                       <div>
                         <dt className="inline muted">Last upload:</dt>{" "}
-                        <dd className="inline font-medium muted">—</dd>
+                        <dd className="inline font-medium">
+                          {analyticsUploads.data?.[0]
+                            ? new Date(analyticsUploads.data[0].uploaded_at).toLocaleDateString()
+                            : "—"}
+                        </dd>
                       </div>
                       <div>
                         <dt className="inline muted">Last report:</dt>{" "}
-                        <dd className="inline font-medium muted">—</dd>
+                        <dd className="inline font-medium">
+                          {analyticsActivity.data?.find(e => e.type === "report")
+                            ? new Date(analyticsActivity.data.find(e => e.type === "report")!.timestamp).toLocaleDateString()
+                            : "—"}
+                        </dd>
                       </div>
                     </dl>
                   )}
                 </StatusCard>
               </section>
 
-              {/* Row 3: Analytics cockpit — enhanced mode only */}
-              <div className="mt-6 mb-2">
-                <h2 className="text-xl font-semibold">Analytics Cockpit</h2>
-                <p className="mt-1 text-sm muted">Live metrics, upload activity, and delivery status.</p>
+              {/* Analytics Cockpit */}
+              <div className="mt-8 mb-4 flex flex-wrap items-end justify-between gap-3">
+                <div>
+                  <h2 className="text-xl font-semibold">Analytics Cockpit</h2>
+                  <p className="mt-1 text-sm muted">
+                    Live metrics for <span className="font-mono text-[var(--accent)]">{activeBusinessId}</span>
+                  </p>
+                </div>
               </div>
 
-              <section className="mt-2 grid gap-4 md:grid-cols-2">
-                <MetricsSnapshotCard />
-                <RecentUploadsCard onSelectUpload={setPreviewUpload} />
+              {/* Financial Summary */}
+              {analyticsMetrics.loading ? (
+                <p className="text-sm muted">Loading metrics...</p>
+              ) : analyticsMetrics.error ? (
+                <Alert tone="danger">{analyticsMetrics.error}</Alert>
+              ) : analyticsMetrics.data ? (
+                <>
+                  <SummaryCards
+                    revenue={analyticsMetrics.data.totals.revenue}
+                    expenses={analyticsMetrics.data.totals.expenses}
+                    profit={analyticsMetrics.data.totals.profit}
+                  />
+                  <div className="mt-4 card p-5">
+                    <h3 className="mb-3 text-base font-semibold">Revenue / Expenses / Profit Trend</h3>
+                    <MetricsChart
+                      revenueTrend={analyticsMetrics.data.revenue_trend}
+                      expensesTrend={analyticsMetrics.data.expenses_trend}
+                      profitTrend={analyticsMetrics.data.profit_trend}
+                    />
+                  </div>
+                </>
+              ) : null}
+
+              {/* Uploads + WhatsApp */}
+              <section className="mt-6 grid gap-4 lg:grid-cols-2">
+                <div className="card p-5">
+                  <h3 className="mb-3 text-base font-semibold">Recent Uploads</h3>
+                  {analyticsUploads.loading ? (
+                    <p className="text-sm muted">Loading uploads...</p>
+                  ) : analyticsUploads.error ? (
+                    <ErrorBadge message="Data unavailable" />
+                  ) : (
+                    <UploadsTable uploads={analyticsUploads.data ?? []} />
+                  )}
+                </div>
+
+                <div className="card p-5">
+                  <h3 className="mb-3 text-base font-semibold">WhatsApp Delivery</h3>
+                  {analyticsWhatsApp.loading ? (
+                    <p className="text-sm muted">Loading WhatsApp stats...</p>
+                  ) : analyticsWhatsApp.error ? (
+                    <ErrorBadge message="Data unavailable" />
+                  ) : analyticsWhatsApp.data ? (
+                    <WhatsAppStats stats={analyticsWhatsApp.data} />
+                  ) : null}
+                </div>
               </section>
 
-              <section className="mt-4 grid gap-4 md:grid-cols-2">
-                <ActivityTimelineCard />
-                <WhatsAppStatusCard />
+              {/* Activity Timeline */}
+              <section className="mt-4 card p-5">
+                <h3 className="mb-3 text-base font-semibold">Activity Timeline</h3>
+                {analyticsActivity.loading ? (
+                  <p className="text-sm muted">Loading activity...</p>
+                ) : analyticsActivity.error ? (
+                  <ErrorBadge message="Data unavailable" />
+                ) : (
+                  <ActivityTimeline events={analyticsActivity.data ?? []} />
+                )}
               </section>
             </>
           ) : null}
         </motion.section>
-
-        {previewUpload ? (
-          <ExcelPreviewModal
-            upload={previewUpload}
-            onClose={() => setPreviewUpload(null)}
-          />
-        ) : null}
       </main>
     </AuthGuard>
   );
