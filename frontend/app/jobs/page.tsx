@@ -20,6 +20,7 @@ const jobSchema = z
     businessId: z.string().optional(),
     weekStart: z.string().min(1, "Start date is required."),
     weekEnd: z.string().min(1, "End date is required."),
+    sendWhatsapp: z.boolean().default(true),
   })
   .refine((value) => value.weekEnd >= value.weekStart, {
     message: "End date must be on or after start date.",
@@ -50,6 +51,7 @@ export default function JobsPage() {
       businessId: activeBusinessId,
       weekStart: "",
       weekEnd: "",
+      sendWhatsapp: true,
     },
   });
 
@@ -79,7 +81,8 @@ export default function JobsPage() {
         setJob(status);
 
         if (status.status === "completed") {
-          pushToast(`Job ${id.slice(0, 8)} completed.`, "success");
+          const waInfo = status.whatsapp?.sent ? " — WhatsApp sent" : status.whatsapp ? " — WhatsApp skipped" : "";
+          pushToast(`Job ${id.slice(0, 8)} completed${waInfo}.`, "success");
           stopPolling();
         }
         if (status.status === "failed") {
@@ -122,6 +125,7 @@ export default function JobsPage() {
         business_id: values.businessId?.trim() || activeBusinessId,
         week_start: values.weekStart,
         week_end: values.weekEnd,
+        send_whatsapp: values.sendWhatsapp,
       });
 
       setJobId(response.job_id);
@@ -170,6 +174,17 @@ export default function JobsPage() {
               {errors.weekEnd ? <p className="text-sm text-[var(--danger)]">{errors.weekEnd.message}</p> : null}
             </div>
 
+            <div className="md:col-span-3 flex items-center gap-3">
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  {...register("sendWhatsapp")}
+                  className="h-4 w-4 rounded border-[var(--border)] accent-[var(--accent)]"
+                />
+                Send via WhatsApp on completion
+              </label>
+            </div>
+
             <div className="md:col-span-3 flex gap-3">
               <Button type="submit" variant="primary" disabled={isSubmitting}>
                 {isSubmitting ? "Submitting..." : "Generate Report"}
@@ -211,6 +226,25 @@ export default function JobsPage() {
                   <dd className="font-medium">{String(job.result_summary.records_processed ?? "n/a")}</dd>
                 </div>
               </dl>
+            ) : null}
+
+            {job?.whatsapp ? (
+              <div className="mt-4 rounded-md border border-[var(--border)] bg-[rgba(10,19,33,0.4)] p-3">
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-base" aria-hidden="true">
+                    {job.whatsapp.sent ? "✅" : "❌"}
+                  </span>
+                  <span className="font-medium">
+                    {job.whatsapp.sent ? "WhatsApp delivered" : "WhatsApp not sent"}
+                  </span>
+                  {job.whatsapp.sid ? (
+                    <code className="ml-auto text-xs muted">{job.whatsapp.sid}</code>
+                  ) : null}
+                </div>
+                {job.whatsapp.error && !job.whatsapp.sent ? (
+                  <p className="mt-1 text-xs text-[var(--danger)]">{job.whatsapp.error}</p>
+                ) : null}
+              </div>
             ) : null}
           </section>
         ) : null}

@@ -111,6 +111,7 @@ export type AdminGenerateReportRequest = {
   sme_type?: string;
   currency?: string;
   all_businesses?: boolean;
+  send_whatsapp?: boolean;
 };
 
 export type AdminGenerateReportResponse = {
@@ -133,6 +134,11 @@ export type AdminJobStatusResponse = {
     repeat_customers?: number;
     records_processed?: number;
   } | null;
+  whatsapp?: {
+    sent: boolean;
+    sid: string | null;
+    error: string | null;
+  };
 };
 
 export type AdminSettingsResponse = {

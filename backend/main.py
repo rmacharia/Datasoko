@@ -124,6 +124,7 @@ class AdminGenerateReportRequest(BaseModel):
     sme_type: str = "retail"
     currency: str = "KES"
     all_businesses: bool = False
+    send_whatsapp: bool = True
 
 
 class OperationalSettingsUpdate(BaseModel):
@@ -303,6 +304,95 @@ def _mask_phone(phone: str) -> str:
     if len(normalized) <= 4:
         return "***"
     return f"{normalized[:3]}***{normalized[-2:]}"
+
+
+def _format_whatsapp_report(metrics: dict[str, Any], week_start: str, week_end: str) -> str:
+    revenue = metrics.get("weekly_revenue", 0)
+    repeat = metrics.get("repeat_customers", 0)
+    processed = metrics.get("meta", {}).get("records_processed", 0)
+    delta = metrics.get("week_over_week_delta_pct")
+    top_products = metrics.get("top_products", [])
+
+    lines = [
+        f"\U0001f4ca DataSoko Report ({week_start} – {week_end})",
+        "",
+        f"Revenue: KES {revenue:,.0f}" if isinstance(revenue, (int, float)) else f"Revenue: KES {revenue}",
+    ]
+    if delta and delta != "unavailable":
+        arrow = "↑" if float(delta) >= 0 else "↓"
+        lines.append(f"WoW Change: {arrow} {delta}%")
+    lines.append(f"Repeat Customers: {repeat}")
+    lines.append(f"Transactions: {processed}")
+
+    if top_products:
+        lines.append("")
+        lines.append("Top Products:")
+        for p in top_products[:3]:
+            lines.append(f"  • {p.get('product_name', '?')}: {p.get('contribution_pct', 0):.0f}%")
+
+    return "\n".join(lines)
+
+
+def _get_business_whatsapp_phone(business_id: str) -> str | None:
+    """Look up the whatsapp_phone for a business. Returns None if not found."""
+    try:
+        from backend.db.connection import get_connection
+        conn = get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT whatsapp_phone FROM businesses WHERE id = %s LIMIT 1", (business_id,))
+                row = cur.fetchone()
+                return row[0] if row and row[0] else None
+        finally:
+            conn.close()
+    except Exception:
+        return None
+
+
+def _send_whatsapp_report(phone: str, message: str, business_id: str, job_id: str) -> dict[str, Any]:
+    """Send a WhatsApp message via Twilio. Returns result dict with sent/sid/error."""
+    from backend.routes.analytics import log_activity, log_whatsapp_message
+
+    account_sid = os.getenv("TWILIO_ACCOUNT_SID", "").strip()
+    auth_token = os.getenv("TWILIO_AUTH_TOKEN", "").strip()
+    from_number = os.getenv("TWILIO_WHATSAPP_NUMBER", "").strip()
+
+    if not account_sid or not auth_token or not from_number:
+        error_msg = "Twilio not configured"
+        log_whatsapp_message(business_id=business_id, phone=phone, status="failed", message_preview=message[:50], error_detail=error_msg)
+        log_activity(business_id=business_id, event_type="whatsapp", message=f"WhatsApp skipped: {error_msg}", status="failed", metadata={"job_id": job_id})
+        return {"sent": False, "sid": None, "error": error_msg}
+
+    max_attempts = 2
+    last_error = ""
+
+    for attempt in range(max_attempts):
+        try:
+            from twilio.rest import Client  # type: ignore[import-untyped]
+            client = Client(account_sid, auth_token)
+            msg = client.messages.create(
+                from_=from_number,
+                to=f"whatsapp:{phone}",
+                body=message,
+            )
+            log_whatsapp_message(
+                business_id=business_id, phone=phone, status="sent",
+                message_preview=message[:80], provider="twilio", provider_sid=msg.sid,
+            )
+            log_activity(
+                business_id=business_id, event_type="whatsapp",
+                message="Report delivered via WhatsApp",
+                status="success", metadata={"job_id": job_id, "sid": msg.sid},
+            )
+            return {"sent": True, "sid": msg.sid, "error": None}
+        except Exception as exc:
+            last_error = str(exc)
+            if attempt < max_attempts - 1:
+                continue
+
+    log_whatsapp_message(business_id=business_id, phone=phone, status="failed", message_preview=message[:50], error_detail=last_error[:200])
+    log_activity(business_id=business_id, event_type="whatsapp", message=f"WhatsApp delivery failed: {last_error[:80]}", status="failed", metadata={"job_id": job_id})
+    return {"sent": False, "sid": None, "error": last_error}
 
 
 def _settings_response() -> dict[str, Any]:
@@ -774,6 +864,28 @@ def admin_generate_report(payload: AdminGenerateReportRequest, _: None = Depends
             message=f"Report generated — revenue: {metrics.get('weekly_revenue')}",
             status="success",
         )
+
+        if payload.send_whatsapp:
+            phone = _get_business_whatsapp_phone(payload.business_id)
+            if phone:
+                wa_message = _format_whatsapp_report(
+                    metrics,
+                    payload.week_start.isoformat(),
+                    payload.week_end.isoformat(),
+                )
+                wa_result = _send_whatsapp_report(phone, wa_message, payload.business_id, job_id)
+            else:
+                wa_result = {"sent": False, "sid": None, "error": "No WhatsApp phone configured for business"}
+                log_activity(
+                    business_id=payload.business_id,
+                    event_type="whatsapp",
+                    message="WhatsApp skipped: no phone configured",
+                    status="failed",
+                    metadata={"job_id": job_id},
+                )
+            job["whatsapp"] = wa_result
+        else:
+            job["whatsapp"] = {"sent": False, "sid": None, "error": "WhatsApp delivery disabled"}
     except Exception as exc:
         job["status"] = "failed"
         job["finished_at"] = datetime.now(timezone.utc).isoformat()
