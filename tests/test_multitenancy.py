@@ -384,6 +384,27 @@ class TestMigration001SchemaDrift(unittest.TestCase):
         run(conn)
         self.assertEqual(conn.commit_count, 0)
 
+    def test_alter_runs_before_index_and_seed(self) -> None:
+        """ALTER columns must execute BEFORE CREATE INDEX and INSERT (prevents drift failure)."""
+        from backend.migrations.migration_001_multitenancy import run
+        conn = RecordingConnection()
+        run(conn)
+        sqls = [q for q, _ in conn.executed]
+
+        last_alter = max(
+            i for i, q in enumerate(sqls) if q.startswith("ALTER TABLE")
+        )
+        first_index = next(
+            i for i, q in enumerate(sqls) if "CREATE INDEX" in q
+        )
+        first_insert = next(
+            i for i, q in enumerate(sqls) if q.startswith("INSERT INTO organizations")
+        )
+        self.assertLess(last_alter, first_index,
+                        "All ALTERs must finish before CREATE INDEX")
+        self.assertLess(last_alter, first_insert,
+                        "All ALTERs must finish before INSERT seed data")
+
 
 if __name__ == "__main__":
     unittest.main()

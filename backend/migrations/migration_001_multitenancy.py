@@ -5,7 +5,11 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-_DDL = [
+# Phase 1: create tables with minimal primary-key-only structure.
+# On a fresh DB these create the full schema; on a drifted DB where the table
+# already exists, CREATE TABLE IF NOT EXISTS is a no-op — that's fine because
+# phase 2 adds any missing columns.
+_CREATE_TABLES = [
     """
     CREATE TABLE IF NOT EXISTS organizations (
         id          TEXT PRIMARY KEY,
@@ -31,17 +35,12 @@ _DDL = [
         created_at       TIMESTAMPTZ DEFAULT NOW()
     )
     """,
-    """
-    CREATE INDEX IF NOT EXISTS idx_businesses_org ON businesses (organization_id)
-    """,
-    """
-    INSERT INTO organizations (id, name)
-    VALUES ('default_org', 'Default Organization')
-    ON CONFLICT DO NOTHING
-    """,
 ]
 
-_ALTER_STATEMENTS = [
+# Phase 2: ensure every expected column exists. Runs unconditionally so that
+# partially-created tables (schema drift) get repaired before anything
+# references those columns.
+_ALTER_COLUMNS = [
     "ALTER TABLE organizations ADD COLUMN IF NOT EXISTS name TEXT",
     "ALTER TABLE organizations ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()",
     "ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS plan TEXT",
@@ -52,6 +51,16 @@ _ALTER_STATEMENTS = [
     "ALTER TABLE businesses ADD COLUMN IF NOT EXISTS name TEXT",
     "ALTER TABLE businesses ADD COLUMN IF NOT EXISTS whatsapp_phone TEXT",
     "ALTER TABLE businesses ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()",
+]
+
+# Phase 3: indexes and seed data — only safe to run AFTER all columns exist.
+_POST_ALTER = [
+    "CREATE INDEX IF NOT EXISTS idx_businesses_org ON businesses (organization_id)",
+    """
+    INSERT INTO organizations (id, name)
+    VALUES ('default_org', 'Default Organization')
+    ON CONFLICT DO NOTHING
+    """,
 ]
 
 _BACKFILL_SQL = """
@@ -72,12 +81,17 @@ LIMIT 1
 def run(connection: Any) -> None:
     """Apply all DDL for multi-tenancy. Caller (runner) owns commit/rollback."""
     with connection.cursor() as cur:
-        for sql in _DDL:
+        for sql in _CREATE_TABLES:
             cur.execute(sql.strip())
+        logger.info("[migration_001] phase 1: tables created/verified")
 
-        for sql in _ALTER_STATEMENTS:
+        for sql in _ALTER_COLUMNS:
             cur.execute(sql)
-        logger.info("[migration_001] applied %d ALTER statements for schema drift", len(_ALTER_STATEMENTS))
+        logger.info("[migration_001] phase 2: %d ALTER statements applied", len(_ALTER_COLUMNS))
+
+        for sql in _POST_ALTER:
+            cur.execute(sql.strip())
+        logger.info("[migration_001] phase 3: indexes and seed data applied")
 
         cur.execute(_TABLE_EXISTS_SQL)
         if cur.fetchone() is not None:

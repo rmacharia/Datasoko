@@ -34,11 +34,7 @@ CREATE TABLE IF NOT EXISTS businesses (
     created_at       TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Index
-CREATE INDEX IF NOT EXISTS idx_businesses_org
-ON businesses (organization_id);
-
--- Schema drift: add any missing columns on existing tables
+-- Schema drift: add any missing columns BEFORE creating indexes or seeding data
 ALTER TABLE organizations ADD COLUMN IF NOT EXISTS name TEXT;
 ALTER TABLE organizations ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
 ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS plan TEXT;
@@ -49,6 +45,10 @@ ALTER TABLE businesses ADD COLUMN IF NOT EXISTS organization_id TEXT NOT NULL DE
 ALTER TABLE businesses ADD COLUMN IF NOT EXISTS name TEXT;
 ALTER TABLE businesses ADD COLUMN IF NOT EXISTS whatsapp_phone TEXT;
 ALTER TABLE businesses ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
+
+-- Index (safe now — organization_id guaranteed to exist)
+CREATE INDEX IF NOT EXISTS idx_businesses_org
+ON businesses (organization_id);
 
 -- Default org
 INSERT INTO organizations (id, name)
