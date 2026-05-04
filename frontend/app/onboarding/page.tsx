@@ -49,14 +49,15 @@ export default function OnboardingPage() {
   };
 
   return (
-    <main className="mx-auto max-w-lg p-6 md:p-10">
+    <main className="mx-auto flex min-h-screen max-w-lg items-center p-6 md:p-10">
       <motion.div
+        className="w-full"
         initial={reduce ? false : { opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={reduce ? { duration: 0 } : { duration: 0.22, ease: "easeOut" }}
       >
         <div className="mb-8">
-          <p className="text-xs uppercase tracking-[0.12em] text-[var(--text-muted)]">DataSoko Internal</p>
+          <p className="text-xs uppercase tracking-[0.14em] text-[var(--text-muted)]">DataSoko Internal</p>
           <h1 className="mt-1 text-2xl font-semibold tracking-tight">Set Up Your Organization</h1>
           <p className="mt-2 text-sm muted">
             Create an organization to manage SMEs and billing. This runs once per deployment.
@@ -69,7 +70,7 @@ export default function OnboardingPage() {
           </div>
         ) : null}
 
-        <form onSubmit={(e) => void handleSubmit(e)} className="card p-6 space-y-5">
+        <form onSubmit={(e) => void handleSubmit(e)} className="card card-glow p-6 space-y-5">
           <label className="block text-sm font-medium">
             Organization ID
             <Input
@@ -113,11 +114,11 @@ export default function OnboardingPage() {
           </Button>
         </form>
 
-        <p className="mt-4 text-center text-xs muted">
+        <p className="mt-5 text-center text-xs muted">
           Already onboarded?{" "}
           <button
             type="button"
-            className="underline text-[var(--accent)]"
+            className="underline text-[var(--accent)] hover:text-[var(--focus)] transition-colors"
             onClick={() => router.replace("/")}
           >
             Skip to dashboard

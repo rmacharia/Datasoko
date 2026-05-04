@@ -34,7 +34,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
       {children}
       <div className="pointer-events-none fixed bottom-4 right-4 z-[70] flex w-[min(420px,90vw)] flex-col gap-2">
         {toasts.map((toast) => (
-          <div key={toast.id} className="pointer-events-auto">
+          <div key={toast.id} className="pointer-events-auto toast-enter">
             <Alert tone={toast.tone}>{toast.message}</Alert>
           </div>
         ))}

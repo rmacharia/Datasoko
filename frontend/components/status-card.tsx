@@ -26,7 +26,7 @@ const icons: Record<Props["status"], string> = {
 
 export function StatusCard({ title, status, children }: Props) {
   return (
-    <article className="card p-5" aria-live="polite">
+    <article className="card card-interactive p-5" aria-live="polite">
       <header className="mb-4 flex items-center justify-between gap-2">
         <h2 className="flex items-center gap-2 text-base font-semibold">
           <span className="text-[var(--accent)]" aria-hidden="true">

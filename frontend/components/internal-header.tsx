@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import { useAuth } from "@/components/auth-provider";
@@ -21,6 +22,7 @@ export function InternalHeader() {
   const { token, logout } = useAuth();
   const { enhancedMode, effectiveEnhancedMode, setEnhancedMode } = useSettings();
   const { organizationId, activeBusinessId } = useOrg();
+  const pathname = usePathname();
 
   const [reachable, setReachable] = useState<boolean | null>(null);
 
@@ -92,15 +94,21 @@ export function InternalHeader() {
 
         {token ? (
           <nav aria-label="Primary" className="flex flex-wrap items-center gap-2">
-            {links.map((item) => (
-              <Link
-                key={item.href}
-                className="rounded-md border border-transparent px-3 py-2 text-sm font-semibold text-[var(--text-muted)] transition hover:border-[var(--border)] hover:bg-[rgba(79,121,199,0.14)] hover:text-[var(--text)]"
-                href={item.href}
-              >
-                {item.label}
-              </Link>
-            ))}
+            {links.map((item) => {
+              const isActive = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+              return (
+                <Link
+                  key={item.href}
+                  className={`rounded-md border border-transparent px-3 py-2 text-sm font-semibold transition hover:border-[var(--border)] hover:bg-[rgba(79,121,199,0.14)] hover:text-[var(--text)] ${
+                    isActive ? "nav-link-active" : "text-[var(--text-muted)]"
+                  }`}
+                  href={item.href}
+                  aria-current={isActive ? "page" : undefined}
+                >
+                  {item.label}
+                </Link>
+              );
+            })}
             <Button variant="ghost" onClick={logout} className="ml-1">
               Log out
             </Button>

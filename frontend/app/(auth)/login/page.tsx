@@ -43,11 +43,16 @@ export default function LoginPage() {
 
   return (
     <main className="mx-auto flex min-h-screen max-w-5xl items-center justify-center p-6">
-      <section className="card card-glow w-full max-w-md p-6">
-        <h1 className="text-2xl font-semibold">Internal Admin Login</h1>
-        <p className="mt-2 text-sm muted">Use the internal `ADMIN_TOKEN` from secure ops storage.</p>
+      <section className="card card-glow w-full max-w-md p-8">
+        <div className="mb-6">
+          <p className="text-xs uppercase tracking-[0.14em] text-[var(--text-muted)]">DataSoko Internal</p>
+          <h1 className="mt-1 text-2xl font-semibold tracking-tight">Admin Login</h1>
+          <p className="mt-2 text-sm muted">
+            Authenticate with your <code className="rounded bg-[rgba(79,121,199,0.15)] px-1.5 py-0.5 text-xs font-medium text-[var(--accent)]">ADMIN_TOKEN</code> from secure ops storage.
+          </p>
+        </div>
 
-        <form className="mt-6 space-y-4" onSubmit={handleSubmit(onSubmit)}>
+        <form className="space-y-4" onSubmit={handleSubmit(onSubmit)}>
           <label className="block text-sm font-medium" htmlFor="adminToken">
             Admin Token
           </label>
@@ -55,6 +60,7 @@ export default function LoginPage() {
             id="adminToken"
             type="password"
             autoComplete="current-password"
+            placeholder="Enter admin token..."
             aria-invalid={Boolean(errors.adminToken)}
             aria-describedby={errors.adminToken ? "adminToken-error" : undefined}
             {...register("adminToken")}
@@ -71,7 +77,7 @@ export default function LoginPage() {
           </label>
 
           <Button type="submit" variant="primary" disabled={isSubmitting} className="w-full">
-            Continue
+            {isSubmitting ? "Authenticating..." : "Continue"}
           </Button>
         </form>
       </section>

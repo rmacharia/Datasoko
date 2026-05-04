@@ -117,7 +117,7 @@ export default function OverviewPage() {
     return (
       <AuthGuard>
         <main className="mx-auto max-w-6xl p-4 md:p-6">
-          <p className="text-sm muted">Checking subscription status...</p>
+          <p className="text-sm muted loading-pulse">Checking subscription status...</p>
         </main>
       </AuthGuard>
     );
