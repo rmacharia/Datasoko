@@ -2,6 +2,8 @@
 
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 
+import { useAuth } from "@/components/auth-provider";
+
 const ORG_ID_KEY = "datasoko_org_id";
 const BIZ_ID_KEY = "datasoko_active_biz_id";
 
@@ -15,15 +17,23 @@ type OrgContextValue = {
 const OrgContext = createContext<OrgContextValue | undefined>(undefined);
 
 export function OrgProvider({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
   const [organizationId, setOrgIdState] = useState("default_org");
   const [activeBusinessId, setBizIdState] = useState("biz_001");
 
   useEffect(() => {
-    const storedOrg = window.localStorage.getItem(ORG_ID_KEY);
-    const storedBiz = window.localStorage.getItem(BIZ_ID_KEY);
-    if (storedOrg) setOrgIdState(storedOrg);
-    if (storedBiz) setBizIdState(storedBiz);
-  }, []);
+    if (user) {
+      setOrgIdState(user.organization_id);
+      if (user.business_id) {
+        setBizIdState(user.business_id);
+      }
+    } else {
+      const storedOrg = window.localStorage.getItem(ORG_ID_KEY);
+      const storedBiz = window.localStorage.getItem(BIZ_ID_KEY);
+      if (storedOrg) setOrgIdState(storedOrg);
+      if (storedBiz) setBizIdState(storedBiz);
+    }
+  }, [user]);
 
   const value = useMemo<OrgContextValue>(
     () => ({

@@ -10,7 +10,7 @@ import { useSettings } from "@/components/settings-provider";
 import { Button } from "@/components/ui/button";
 import { getHealth, isApiError } from "@/lib/api";
 
-const links = [
+const adminLinks = [
   { href: "/", label: "Overview" },
   { href: "/upload", label: "Upload" },
   { href: "/reports", label: "Reports" },
@@ -18,8 +18,14 @@ const links = [
   { href: "/settings", label: "Settings" },
 ];
 
+const smeLinks = [
+  { href: "/", label: "Overview" },
+  { href: "/upload", label: "Upload" },
+  { href: "/reports", label: "Reports" },
+];
+
 export function InternalHeader() {
-  const { token, logout } = useAuth();
+  const { token, user, logout } = useAuth();
   const { enhancedMode, effectiveEnhancedMode, setEnhancedMode } = useSettings();
   const { organizationId, activeBusinessId } = useOrg();
   const pathname = usePathname();
@@ -94,7 +100,7 @@ export function InternalHeader() {
 
         {token ? (
           <nav aria-label="Primary" className="flex flex-wrap items-center gap-2">
-            {links.map((item) => {
+            {(user?.role === "sme" ? smeLinks : adminLinks).map((item) => {
               const isActive = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
               return (
                 <Link
@@ -109,6 +115,14 @@ export function InternalHeader() {
                 </Link>
               );
             })}
+            {user ? (
+              <span className="rounded-md border border-[var(--border)] bg-[rgba(10,19,33,0.85)] px-2.5 py-1 text-xs">
+                <span className="muted">{user.email}</span>{" "}
+                <span className={`font-semibold uppercase ${user.role === "admin" ? "text-[var(--accent)]" : "text-[var(--ok)]"}`}>
+                  {user.role}
+                </span>
+              </span>
+            ) : null}
             <Button variant="ghost" onClick={logout} className="ml-1">
               Log out
             </Button>

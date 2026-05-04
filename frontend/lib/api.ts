@@ -10,6 +10,35 @@ export type HealthResponse = {
   status: string;
 };
 
+// ── Auth types ─────────────────────────────────────────────────────────────
+
+export type AuthUser = {
+  id: string;
+  email: string;
+  role: "admin" | "sme";
+  organization_id: string;
+  business_id: string | null;
+};
+
+export type LoginRequest = {
+  email: string;
+  password: string;
+};
+
+export type RegisterRequest = {
+  email: string;
+  password: string;
+  organization_id: string;
+  role: string;
+  business_id?: string;
+};
+
+export type AuthResponse = {
+  access_token: string;
+  token_type: string;
+  user: AuthUser;
+};
+
 export type VersionResponse = {
   app_version: string;
   schema_version: string;
@@ -378,6 +407,26 @@ export async function apiRequest<T>(
 
 export function isApiError(value: unknown): value is ApiError {
   return isObject(value) && typeof value.status === "number" && typeof value.message === "string";
+}
+
+// ── Auth endpoints ─────────────────────────────────────────────────────────
+
+export function authLogin(payload: LoginRequest): Promise<AuthResponse> {
+  return apiRequest<AuthResponse>("/auth/login", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function authRegister(payload: RegisterRequest): Promise<AuthResponse> {
+  return apiRequest<AuthResponse>("/auth/register", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function authMe(token: string): Promise<AuthUser> {
+  return apiRequest<AuthUser>("/auth/me", { method: "GET", token });
 }
 
 export function getHealth(token?: string): Promise<HealthResponse> {

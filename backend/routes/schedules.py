@@ -5,26 +5,15 @@ from datetime import date, time
 from typing import Any
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from backend.auth import AuthUser, get_current_user
 from backend.db.connection import get_connection
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/schedules", tags=["schedules"])
-
-
-def _require_admin_token(authorization: str | None = Header(default=None, alias="Authorization")) -> None:
-    import os
-    admin_token = os.getenv("ADMIN_TOKEN", "").strip()
-    if not admin_token:
-        raise HTTPException(status_code=500, detail="ADMIN_TOKEN not configured.")
-    if not authorization:
-        raise HTTPException(status_code=401, detail="Authorization header required.")
-    parts = authorization.split(" ", 1)
-    if len(parts) != 2 or parts[0].lower() != "bearer" or parts[1].strip() != admin_token:
-        raise HTTPException(status_code=401, detail="Invalid admin token.")
 
 
 class CreateScheduleRequest(BaseModel):
@@ -53,7 +42,7 @@ class UpdateScheduleRequest(BaseModel):
 @router.post("")
 def create_schedule(
     payload: CreateScheduleRequest,
-    _: None = Depends(_require_admin_token),
+    user: AuthUser = Depends(get_current_user),
 ) -> dict[str, Any]:
     if payload.frequency not in ("daily", "weekly", "monthly"):
         raise HTTPException(status_code=400, detail="frequency must be daily, weekly, or monthly")
@@ -62,6 +51,7 @@ def create_schedule(
     if payload.frequency == "monthly" and payload.day_of_month is None:
         raise HTTPException(status_code=400, detail="day_of_month required for monthly schedules")
 
+    payload.organization_id = user.organization_id
     schedule_id = uuid4().hex
     parsed_time = time.fromisoformat(payload.time_of_day)
 
@@ -121,8 +111,9 @@ def create_schedule(
 @router.get("")
 def list_schedules(
     organization_id: str = "default_org",
-    _: None = Depends(_require_admin_token),
+    user: AuthUser = Depends(get_current_user),
 ) -> list[dict[str, Any]]:
+    organization_id = user.organization_id
     conn = get_connection()
     try:
         with conn.cursor() as cur:
@@ -171,7 +162,7 @@ def list_schedules(
 def update_schedule(
     schedule_id: str,
     payload: UpdateScheduleRequest,
-    _: None = Depends(_require_admin_token),
+    user: AuthUser = Depends(get_current_user),
 ) -> dict[str, Any]:
     updates: list[str] = []
     values: list[Any] = []
@@ -231,7 +222,7 @@ def update_schedule(
 @router.delete("/{schedule_id}")
 def delete_schedule(
     schedule_id: str,
-    _: None = Depends(_require_admin_token),
+    user: AuthUser = Depends(get_current_user),
 ) -> dict[str, Any]:
     conn = get_connection()
     try:

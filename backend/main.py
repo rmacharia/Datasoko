@@ -44,12 +44,14 @@ app.add_middleware(
 )
 
 
+from backend.routes.auth import router as auth_router
 from backend.routes.onboarding import router as onboarding_router
 from backend.routes.businesses import router as businesses_router
 from backend.routes.billing import router as billing_router
 from backend.routes.analytics import router as analytics_router
 from backend.routes.schedules import router as schedules_router
 
+app.include_router(auth_router)
 app.include_router(onboarding_router)
 app.include_router(businesses_router)
 app.include_router(billing_router)

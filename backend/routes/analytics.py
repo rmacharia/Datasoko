@@ -6,6 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 
+from backend.auth import AuthUser, get_current_user
 from backend.db.connection import get_connection
 
 logger = logging.getLogger(__name__)
@@ -79,8 +80,11 @@ LIMIT 30
 def get_analytics_metrics(
     organization_id: str = "default_org",
     business_id: str = "biz_001",
-    _: None = Depends(_require_admin_token),
+    user: AuthUser = Depends(get_current_user),
 ) -> dict[str, Any]:
+    organization_id = user.organization_id
+    if user.role == "sme" and user.business_id:
+        business_id = user.business_id
     connection = get_connection()
     try:
         with connection.cursor() as cur:
@@ -185,8 +189,11 @@ def _enrich_expenses(
 def get_analytics_uploads(
     organization_id: str = "default_org",
     business_id: str = "biz_001",
-    _: None = Depends(_require_admin_token),
+    user: AuthUser = Depends(get_current_user),
 ) -> list[dict[str, Any]]:
+    organization_id = user.organization_id
+    if user.role == "sme" and user.business_id:
+        business_id = user.business_id
     connection = get_connection()
     try:
         with connection.cursor() as cur:
@@ -221,8 +228,11 @@ def get_analytics_uploads(
 def get_analytics_whatsapp(
     organization_id: str = "default_org",
     business_id: str = "biz_001",
-    _: None = Depends(_require_admin_token),
+    user: AuthUser = Depends(get_current_user),
 ) -> dict[str, Any]:
+    organization_id = user.organization_id
+    if user.role == "sme" and user.business_id:
+        business_id = user.business_id
     connection = get_connection()
     try:
         with connection.cursor() as cur:
@@ -259,8 +269,11 @@ def get_analytics_whatsapp(
 def get_analytics_activity(
     organization_id: str = "default_org",
     business_id: str = "biz_001",
-    _: None = Depends(_require_admin_token),
+    user: AuthUser = Depends(get_current_user),
 ) -> list[dict[str, Any]]:
+    organization_id = user.organization_id
+    if user.role == "sme" and user.business_id:
+        business_id = user.business_id
     connection = get_connection()
     try:
         with connection.cursor() as cur:
@@ -326,8 +339,9 @@ def log_activity(
 @router.get("/costs")
 def get_analytics_costs(
     organization_id: str = "default_org",
-    _: None = Depends(_require_admin_token),
+    user: AuthUser = Depends(get_current_user),
 ) -> dict[str, Any]:
+    organization_id = user.organization_id
     connection = get_connection()
     try:
         with connection.cursor() as cur:
