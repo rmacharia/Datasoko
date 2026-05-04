@@ -6,6 +6,8 @@ import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
+import Link from "next/link";
+
 import { useAuth } from "@/components/auth-provider";
 import { useToast } from "@/components/toast-provider";
 import { Button } from "@/components/ui/button";
@@ -47,7 +49,7 @@ export default function LoginPage() {
       const response = await authLogin({ email: values.email, password: values.password });
       login(response.access_token, response.user, values.remember);
       pushToast(`Welcome, ${response.user.email}`, "success");
-      router.replace("/");
+      router.replace(response.user.role === "sme" ? "/reports" : "/");
     } catch (err) {
       const msg = isApiError(err) ? err.message : "Login failed. Check your credentials.";
       setError(msg);
@@ -116,6 +118,13 @@ export default function LoginPage() {
             {isSubmitting ? "Signing in..." : "Sign In"}
           </Button>
         </form>
+
+        <p className="mt-4 text-center text-xs muted">
+          First time?{" "}
+          <Link href="/setup" className="text-[var(--accent)] underline">
+            Initialize the system
+          </Link>
+        </p>
       </section>
     </main>
   );

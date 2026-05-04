@@ -39,6 +39,34 @@ export type AuthResponse = {
   user: AuthUser;
 };
 
+export type AuthStatusResponse = {
+  initialized: boolean;
+  user_count: number;
+};
+
+export type BootstrapRequest = {
+  email: string;
+  password: string;
+  organization_id: string;
+};
+
+export type CreateUserRequest = {
+  email: string;
+  password: string;
+  role: string;
+  business_id?: string | null;
+};
+
+export type ManagedUser = {
+  id: string;
+  email: string;
+  role: "admin" | "sme";
+  organization_id?: string;
+  business_id: string | null;
+  is_active: boolean;
+  created_at?: string;
+};
+
 export type VersionResponse = {
   app_version: string;
   schema_version: string;
@@ -427,6 +455,50 @@ export function authRegister(payload: RegisterRequest): Promise<AuthResponse> {
 
 export function authMe(token: string): Promise<AuthUser> {
   return apiRequest<AuthUser>("/auth/me", { method: "GET", token });
+}
+
+export function authStatus(): Promise<AuthStatusResponse> {
+  return apiRequest<AuthStatusResponse>("/auth/status", { method: "GET" });
+}
+
+export function authBootstrap(payload: BootstrapRequest): Promise<AuthResponse> {
+  return apiRequest<AuthResponse>("/auth/bootstrap", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+// ── User management endpoints ──────────────────────────────────────────────
+
+export function getUsers(token: string): Promise<ManagedUser[]> {
+  return apiRequest<ManagedUser[]>("/users", { method: "GET", token });
+}
+
+export function createUser(token: string, payload: CreateUserRequest): Promise<ManagedUser> {
+  return apiRequest<ManagedUser>("/users", {
+    method: "POST",
+    token,
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateUser(
+  token: string,
+  userId: string,
+  payload: Partial<{ role: string; business_id: string; is_active: boolean }>,
+): Promise<{ id: string; updated: boolean }> {
+  return apiRequest<{ id: string; updated: boolean }>(`/users/${userId}`, {
+    method: "PATCH",
+    token,
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteUser(token: string, userId: string): Promise<{ id: string; disabled: boolean }> {
+  return apiRequest<{ id: string; disabled: boolean }>(`/users/${userId}`, {
+    method: "DELETE",
+    token,
+  });
 }
 
 export function getHealth(token?: string): Promise<HealthResponse> {

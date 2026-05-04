@@ -15,6 +15,7 @@ const adminLinks = [
   { href: "/upload", label: "Upload" },
   { href: "/reports", label: "Reports" },
   { href: "/jobs", label: "Jobs" },
+  { href: "/users", label: "Users" },
   { href: "/settings", label: "Settings" },
 ];
 

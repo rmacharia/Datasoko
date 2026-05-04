@@ -15,6 +15,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
+class BootstrapRequest(BaseModel):
+    email: str = Field(min_length=3)
+    password: str = Field(min_length=6)
+    organization_id: str = Field(default="default_org", min_length=1)
+
+
 class RegisterRequest(BaseModel):
     email: str = Field(min_length=3)
     password: str = Field(min_length=6)
@@ -26,6 +32,95 @@ class RegisterRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: str = Field(min_length=1)
     password: str = Field(min_length=1)
+
+
+@router.get("/status")
+def auth_status() -> dict[str, Any]:
+    """Check if any users exist (for setup flow)."""
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM information_schema.tables WHERE table_name = 'users' LIMIT 1")
+            if cur.fetchone() is None:
+                return {"initialized": False, "user_count": 0}
+            cur.execute("SELECT COUNT(*) FROM users")
+            count = cur.fetchone()[0]
+        return {"initialized": count > 0, "user_count": count}
+    except Exception as exc:
+        logger.warning("auth/status check failed: %s", exc)
+        return {"initialized": False, "user_count": 0}
+    finally:
+        conn.close()
+
+
+@router.post("/bootstrap")
+def bootstrap(payload: BootstrapRequest) -> dict[str, Any]:
+    """Create the first admin user. Only works when no users exist."""
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM information_schema.tables WHERE table_name = 'users' LIMIT 1")
+            if cur.fetchone() is None:
+                raise HTTPException(status_code=500, detail="Users table not initialized. Run migrations first.")
+            cur.execute("SELECT COUNT(*) FROM users")
+            count = cur.fetchone()[0]
+        if count > 0:
+            raise HTTPException(status_code=403, detail="Bootstrap already completed. Use /auth/login instead.")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Bootstrap check failed: %s", exc)
+        raise HTTPException(status_code=500, detail="Database error") from exc
+    finally:
+        conn.close()
+
+    user_id = uuid4().hex
+    pw_hash = hash_password(payload.password)
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO users (id, email, password_hash, organization_id, role, business_id)
+                VALUES (%s, %s, %s, %s, 'admin', NULL)
+            """, (user_id, payload.email, pw_hash, payload.organization_id))
+        conn.commit()
+    except Exception as exc:
+        conn.rollback()
+        logger.error("Bootstrap insert failed: %s", exc)
+        raise HTTPException(status_code=500, detail="Failed to create admin user") from exc
+    finally:
+        conn.close()
+
+    from backend.routes.analytics import log_activity
+    log_activity(
+        business_id="system",
+        event_type="bootstrap",
+        message=f"System bootstrapped by {payload.email}",
+        status="success",
+        organization_id=payload.organization_id,
+    )
+
+    user = AuthUser(
+        id=user_id,
+        email=payload.email,
+        organization_id=payload.organization_id,
+        role="admin",
+        business_id=None,
+    )
+    token = issue_token(user)
+
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "user": {
+            "id": user.id,
+            "email": user.email,
+            "role": user.role,
+            "organization_id": user.organization_id,
+            "business_id": user.business_id,
+        },
+    }
 
 
 @router.post("/register")
