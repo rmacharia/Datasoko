@@ -31,7 +31,7 @@ jobs:
           pip install -r requirements.txt
 
       # ✅ Deploy to Azure
-      # Migrations run automatically on App Service startup via RUN_MIGRATIONS_ON_STARTUP=true.
+      # Migrations run automatically via startup.sh before gunicorn starts.
       # The DB is VNet-private and unreachable from GitHub Actions runners.
       - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v3

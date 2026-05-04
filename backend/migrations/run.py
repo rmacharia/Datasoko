@@ -29,18 +29,24 @@ def _load_module(path: Path) -> Any:
     return mod
 
 
+def _log(msg: str, *args: Any) -> None:
+    formatted = msg % args if args else msg
+    logger.info(formatted)
+    print(formatted, flush=True)
+
+
 def run_migrations(connection: Any) -> None:
-    logger.info("[migration] ensuring schema_migrations tracking table exists")
+    _log("[migration] ensuring schema_migrations tracking table exists")
     with connection.cursor() as cur:
         cur.execute(_ENSURE_TRACKING_SQL)
     connection.commit()
 
     paths = _discover_migrations()
-    logger.info("[migration] discovered %d migration file(s): %s",
-                len(paths), [p.name for p in paths])
+    filenames = [p.name for p in paths]
+    _log("[migration] found: %s", ", ".join(filenames) if filenames else "(none)")
 
     if not paths:
-        logger.warning("[migration] no migration files found — nothing to apply")
+        _log("[migration] WARNING: no migration files found — nothing to apply")
         return
 
     applied = 0
@@ -53,22 +59,24 @@ def run_migrations(connection: Any) -> None:
             already = cur.fetchone()
 
         if already is not None:
-            logger.info("[migration] skipped %s (already recorded in schema_migrations)", migration_id)
+            _log("[migration] skipping %s (already applied)", migration_id)
             skipped += 1
             continue
 
-        logger.info("[migration] applying %s ...", migration_id)
+        _log("[migration] applying %s", migration_id)
         mod = _load_module(path)
         try:
             mod.run(connection)
             with connection.cursor() as cur:
                 cur.execute(_RECORD_APPLIED_SQL, (migration_id,))
             connection.commit()
-            logger.info("[migration] applied %s successfully", migration_id)
+            _log("[migration] applied %s successfully", migration_id)
             applied += 1
         except Exception as exc:
             connection.rollback()
-            logger.error("[migration] FAILED %s — rolled back: %s", migration_id, exc)
+            msg = "[migration] FAILED %s — rolled back: %s" % (migration_id, exc)
+            logger.error(msg)
+            print(msg, flush=True)
             raise
 
-    logger.info("[migration] done — applied=%d skipped=%d total=%d", applied, skipped, len(paths))
+    _log("[migration] done — applied=%d skipped=%d total=%d", applied, skipped, len(paths))

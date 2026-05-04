@@ -55,38 +55,37 @@ app.include_router(billing_router)
 
 @app.on_event("startup")
 async def _run_migrations_on_startup() -> None:
-    raw_value = os.getenv("RUN_MIGRATIONS_ON_STARTUP")
-    logger.info("[migrations] RUN_MIGRATIONS_ON_STARTUP=%r", raw_value)
-    print(f"RUN_MIGRATIONS_ON_STARTUP={raw_value!r}")
+    """Secondary safety net — primary migration path is startup.sh.
 
-    enabled = (raw_value or "").lower() in {"1", "true", "yes"}
-    if not enabled:
-        logger.info("[migrations] skipped — RUN_MIGRATIONS_ON_STARTUP is not enabled")
+    This hook catches the case where the app is started directly (e.g. dev mode,
+    or Azure misconfiguration that bypasses startup.sh). It verifies the schema
+    exists and runs migrations if tables are missing.
+    """
+    if not os.getenv("DATABASE_URL"):
+        logger.info("[startup] no DATABASE_URL — skipping migration check")
         return
 
-    logger.info("[migrations] starting")
     connection = None
     try:
         from backend.db.connection import get_connection
         from backend.migrations.run import run_migrations
 
         connection = get_connection()
-        logger.info("[migrations] database connection established")
-
-        run_migrations(connection)
-        logger.info("[migrations] completed")
 
         with connection.cursor() as cur:
             cur.execute(
                 "SELECT 1 FROM information_schema.tables "
                 "WHERE table_schema = 'public' AND table_name = 'organizations' LIMIT 1"
             )
-            if cur.fetchone() is None:
-                logger.warning("[migrations] organizations table still missing after run — forcing re-apply")
-                run_migrations(connection)
-                logger.info("[migrations] forced re-apply completed")
+            if cur.fetchone() is not None:
+                logger.info("[startup] schema verified — tables exist")
+                return
+
+        logger.warning("[startup] organizations table missing — running migrations as safety net")
+        run_migrations(connection)
+        logger.info("[startup] safety-net migrations completed")
     except Exception as exc:
-        logger.error("[migrations] FAILED: %s", exc, exc_info=True)
+        logger.error("[startup] safety-net migration failed: %s", exc)
     finally:
         if connection is not None:
             try:
