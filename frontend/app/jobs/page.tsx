@@ -8,6 +8,7 @@ import { z } from "zod";
 
 import { AuthGuard } from "@/components/auth-guard";
 import { useAuth } from "@/components/auth-provider";
+import { useOrg } from "@/components/org-provider";
 import { SystemContext } from "@/components/system-context";
 import { useToast } from "@/components/toast-provider";
 import { Button } from "@/components/ui/button";
@@ -30,6 +31,7 @@ type JobForm = z.infer<typeof jobSchema>;
 export default function JobsPage() {
   const router = useRouter();
   const { token, logout } = useAuth();
+  const { activeBusinessId } = useOrg();
   const { pushToast } = useToast();
   const pollingRef = useRef<number | null>(null);
 
@@ -45,13 +47,13 @@ export default function JobsPage() {
   } = useForm<JobForm>({
     resolver: zodResolver(jobSchema),
     defaultValues: {
-      businessId: "biz_001",
+      businessId: activeBusinessId,
       weekStart: "",
       weekEnd: "",
     },
   });
 
-  const businessId = watch("businessId") || "biz_001";
+  const businessId = watch("businessId") || activeBusinessId;
 
   useEffect(() => {
     return () => {
@@ -117,7 +119,7 @@ export default function JobsPage() {
 
     try {
       const response = await generateAdminReport(token, {
-        business_id: values.businessId?.trim() || "biz_001",
+        business_id: values.businessId?.trim() || activeBusinessId,
         week_start: values.weekStart,
         week_end: values.weekEnd,
       });

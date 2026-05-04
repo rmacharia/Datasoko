@@ -8,6 +8,7 @@ import { z } from "zod";
 
 import { AuthGuard } from "@/components/auth-guard";
 import { useAuth } from "@/components/auth-provider";
+import { useOrg } from "@/components/org-provider";
 import { SystemContext } from "@/components/system-context";
 import { useToast } from "@/components/toast-provider";
 import { Button } from "@/components/ui/button";
@@ -32,6 +33,7 @@ type ReportForm = z.infer<typeof reportSchema>;
 export default function ReportsPage() {
   const router = useRouter();
   const { token, logout } = useAuth();
+  const { activeBusinessId } = useOrg();
   const { pushToast } = useToast();
   const [error, setError] = useState<string | null>(null);
   const [report, setReport] = useState<AdminReportsResponse | null>(null);
@@ -44,13 +46,13 @@ export default function ReportsPage() {
   } = useForm<ReportForm>({
     resolver: zodResolver(reportSchema),
     defaultValues: {
-      businessId: "biz_001",
+      businessId: activeBusinessId,
       weekStart: "",
       weekEnd: "",
     },
   });
 
-  const businessId = watch("businessId") || "biz_001";
+  const businessId = watch("businessId") || activeBusinessId;
 
   const onSubmit = async (values: ReportForm) => {
     if (!token) {
@@ -63,7 +65,7 @@ export default function ReportsPage() {
 
     try {
       const response = await getAdminReports(token, {
-        businessId: values.businessId?.trim() || "biz_001",
+        businessId: values.businessId?.trim() || activeBusinessId,
         weekStart: values.weekStart,
         weekEnd: values.weekEnd,
       });

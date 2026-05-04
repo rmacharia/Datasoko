@@ -8,6 +8,7 @@ import { z } from "zod";
 
 import { AuthGuard } from "@/components/auth-guard";
 import { useAuth } from "@/components/auth-provider";
+import { useOrg } from "@/components/org-provider";
 import { useSettings, type ThemePreference } from "@/components/settings-provider";
 import { SystemContext } from "@/components/system-context";
 import { useToast } from "@/components/toast-provider";
@@ -15,11 +16,16 @@ import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
+  createBusiness,
   getAdminSettings,
+  getBilling,
+  getBusinesses,
   isApiError,
   sendAdminWhatsAppTest,
   updateAdminSettings,
   type AdminSettingsResponse,
+  type BillingResponse,
+  type Business,
 } from "@/lib/api";
 import { toSettingsFormDefaults } from "@/lib/settings";
 
@@ -52,9 +58,17 @@ const testSendSchema = z.object({
 type SettingsForm = z.infer<typeof settingsSchema>;
 type TestSendForm = z.infer<typeof testSendSchema>;
 
+const addSmeSchema = z.object({
+  id: z.string().min(1, "Business ID is required."),
+  name: z.string().optional(),
+  whatsapp_phone: z.string().optional(),
+});
+type AddSmeForm = z.infer<typeof addSmeSchema>;
+
 export default function SettingsPage() {
   const router = useRouter();
   const { token, logout } = useAuth();
+  const { organizationId, activeBusinessId, setActiveBusinessId } = useOrg();
   const { theme, setTheme, enhancedMode, setEnhancedMode } = useSettings();
   const { pushToast } = useToast();
 
@@ -62,6 +76,20 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(false);
   const [settingsState, setSettingsState] = useState<AdminSettingsResponse | null>(null);
   const [testSummary, setTestSummary] = useState<string | null>(null);
+
+  const [billing, setBilling] = useState<BillingResponse | null>(null);
+  const [billingLoading, setBillingLoading] = useState(false);
+  const [billingError, setBillingError] = useState<string | null>(null);
+
+  const [businesses, setBusinesses] = useState<Business[]>([]);
+  const [bizLoading, setBizLoading] = useState(false);
+  const [bizError, setBizError] = useState<string | null>(null);
+  const [addSmeError, setAddSmeError] = useState<string | null>(null);
+
+  const addSmeForm = useForm<AddSmeForm>({
+    resolver: zodResolver(addSmeSchema),
+    defaultValues: { id: "", name: "", whatsapp_phone: "" },
+  });
 
   const settingsForm = useForm<SettingsForm>({
     resolver: zodResolver(settingsSchema),
@@ -123,6 +151,45 @@ export default function SettingsPage() {
       mounted = false;
     };
   }, [token, logout, router, settingsForm]);
+
+  useEffect(() => {
+    let mounted = true;
+    setBillingLoading(true);
+    void getBilling(organizationId)
+      .then((res) => { if (mounted) setBilling(res); })
+      .catch((err) => { if (mounted) setBillingError(isApiError(err) ? err.message : "Failed to load billing."); })
+      .finally(() => { if (mounted) setBillingLoading(false); });
+    return () => { mounted = false; };
+  }, [organizationId]);
+
+  useEffect(() => {
+    let mounted = true;
+    setBizLoading(true);
+    void getBusinesses(organizationId)
+      .then((res) => { if (mounted) setBusinesses(res.businesses); })
+      .catch((err) => { if (mounted) setBizError(isApiError(err) ? err.message : "Failed to load businesses."); })
+      .finally(() => { if (mounted) setBizLoading(false); });
+    return () => { mounted = false; };
+  }, [organizationId]);
+
+  const onAddSme = addSmeForm.handleSubmit(async (values) => {
+    setAddSmeError(null);
+    try {
+      const created = await createBusiness({
+        id: values.id.trim(),
+        organization_id: organizationId,
+        name: values.name?.trim() || undefined,
+        whatsapp_phone: values.whatsapp_phone?.trim() || undefined,
+      });
+      setBusinesses((prev) => [...prev, created]);
+      addSmeForm.reset();
+      pushToast(`Business "${created.id}" added.`, "success");
+    } catch (err) {
+      const msg = isApiError(err) ? err.message : "Failed to create business.";
+      setAddSmeError(msg);
+      pushToast(msg, "danger");
+    }
+  });
 
   const onSave = settingsForm.handleSubmit(async (values) => {
     if (!token) {
@@ -216,6 +283,157 @@ export default function SettingsPage() {
 
         {error ? <Alert tone="danger">{error}</Alert> : null}
         {loading ? <p className="mt-3 text-sm muted">Loading settings...</p> : null}
+
+        {/* ── Organization ───────────────────────────────────── */}
+        <section className="mt-4 card p-6">
+          <h2 className="text-lg font-semibold">Organization</h2>
+          <p className="mt-1 text-sm muted">Active organization context for all API calls.</p>
+          <div className="mt-4 grid gap-2 text-sm">
+            <div className="flex items-center gap-3 rounded-md border border-[var(--border)] bg-[rgba(10,19,33,0.6)] px-4 py-3">
+              <span className="muted w-32 shrink-0">Current Organization</span>
+              <span className="font-mono font-semibold text-[var(--accent)]">{organizationId}</span>
+            </div>
+          </div>
+        </section>
+
+        {/* ── Billing ────────────────────────────────────────── */}
+        <section className="mt-4 card p-6">
+          <h2 className="text-lg font-semibold">Billing</h2>
+          <p className="mt-1 text-sm muted">Current subscription status for this organization.</p>
+          {billingLoading ? <p className="mt-3 text-sm muted">Loading billing...</p> : null}
+          {billingError ? <div className="mt-3"><Alert tone="danger">{billingError}</Alert></div> : null}
+          {billing && !billingLoading ? (
+            <div className="mt-4 grid gap-2 text-sm md:grid-cols-2">
+              <div className="flex items-center gap-3 rounded-md border border-[var(--border)] bg-[rgba(10,19,33,0.6)] px-4 py-3">
+                <span className="muted w-28 shrink-0">Plan</span>
+                <span className="font-semibold capitalize">{billing.plan ?? "—"}</span>
+              </div>
+              <div className="flex items-center gap-3 rounded-md border border-[var(--border)] bg-[rgba(10,19,33,0.6)] px-4 py-3">
+                <span className="muted w-28 shrink-0">Status</span>
+                <span className={`font-semibold ${billing.active ? "text-[var(--ok)]" : "text-[var(--danger)]"}`}>
+                  {billing.status ?? "—"}
+                </span>
+              </div>
+              <div className="flex items-center gap-3 rounded-md border border-[var(--border)] bg-[rgba(10,19,33,0.6)] px-4 py-3">
+                <span className="muted w-28 shrink-0">Expires</span>
+                <span className="font-mono text-xs">
+                  {billing.expiry_date ? new Date(billing.expiry_date).toLocaleDateString() : "—"}
+                </span>
+              </div>
+              <div className="flex items-center gap-3 rounded-md border border-[var(--border)] bg-[rgba(10,19,33,0.6)] px-4 py-3">
+                <span className="muted w-28 shrink-0">Days Left</span>
+                <span className={`font-semibold tabular-nums ${billing.days_remaining < 7 ? "text-[var(--warn)]" : ""}`}>
+                  {billing.days_remaining}
+                </span>
+                {billing.days_remaining < 7 ? (
+                  <span className="inline-flex items-center rounded-md bg-[rgba(255,200,87,0.18)] px-2 py-0.5 text-xs font-semibold text-[var(--warn)]">
+                    Expiring soon
+                  </span>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+        </section>
+
+        {/* ── SME Management ─────────────────────────────────── */}
+        <section className="mt-4 card p-6">
+          <div className="flex flex-wrap items-end justify-between gap-2">
+            <div>
+              <h2 className="text-lg font-semibold">SME Businesses</h2>
+              <p className="mt-1 text-sm muted">Businesses registered under this organization.</p>
+            </div>
+            {!bizLoading && businesses.length > 0 ? (
+              <span className="rounded-md border border-[var(--border)] bg-[rgba(10,19,33,0.6)] px-3 py-1 text-xs font-semibold tabular-nums">
+                {businesses.length} {businesses.length === 1 ? "SME" : "SMEs"}
+              </span>
+            ) : null}
+          </div>
+
+          {bizLoading ? <p className="mt-3 text-sm muted">Loading businesses...</p> : null}
+          {bizError ? <div className="mt-3"><Alert tone="danger">{bizError}</Alert></div> : null}
+
+          {!bizLoading && businesses.length > 0 ? (
+            <div className="mt-4 overflow-x-auto rounded-md border border-[var(--border)]">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-[var(--border)] bg-[rgba(10,19,33,0.7)] text-left">
+                    <th className="px-4 py-2 font-semibold">ID</th>
+                    <th className="px-4 py-2 font-semibold">Name</th>
+                    <th className="px-4 py-2 font-semibold">WhatsApp</th>
+                    <th className="px-4 py-2 font-semibold">Created</th>
+                    <th className="px-4 py-2" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {businesses.map((biz) => (
+                    <tr
+                      key={biz.id}
+                      className={`border-b border-[var(--border)] last:border-0 ${
+                        biz.id === activeBusinessId
+                          ? "bg-[rgba(55,181,255,0.1)] border-l-2 border-l-[var(--accent)]"
+                          : "hover:bg-[rgba(79,121,199,0.07)]"
+                      }`}
+                    >
+                      <td className="px-4 py-2 font-mono text-[var(--accent)]">
+                        {biz.id}
+                        {biz.id === activeBusinessId ? (
+                          <span className="ml-2 inline-flex items-center rounded bg-[rgba(55,181,255,0.18)] px-1.5 py-0.5 text-[10px] font-semibold uppercase text-[var(--accent)]">
+                            Active
+                          </span>
+                        ) : null}
+                      </td>
+                      <td className="px-4 py-2">{biz.name ?? <span className="muted">—</span>}</td>
+                      <td className="px-4 py-2 font-mono text-xs">{biz.whatsapp_phone ?? <span className="muted">—</span>}</td>
+                      <td className="px-4 py-2 text-xs muted">{new Date(biz.created_at).toLocaleDateString()}</td>
+                      <td className="px-4 py-2">
+                        {biz.id === activeBusinessId ? (
+                          <span className="text-xs muted">Current</span>
+                        ) : (
+                          <button
+                            type="button"
+                            className="text-xs text-[var(--accent)] underline"
+                            onClick={() => setActiveBusinessId(biz.id)}
+                          >
+                            Set active
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : !bizLoading ? (
+            <p className="mt-4 text-sm muted">No businesses found.</p>
+          ) : null}
+
+          <div className="mt-6 border-t border-[var(--border)] pt-5">
+            <h3 className="text-base font-semibold">Add SME</h3>
+            {addSmeError ? <div className="mt-2"><Alert tone="danger">{addSmeError}</Alert></div> : null}
+            <form className="mt-3 grid gap-3 md:grid-cols-3" onSubmit={(e) => void onAddSme(e)}>
+              <label className="text-sm font-medium">
+                Business ID <span className="text-[var(--danger)]">*</span>
+                <Input {...addSmeForm.register("id")} placeholder="biz_acme" className="mt-1" />
+                {addSmeForm.formState.errors.id ? (
+                  <p className="mt-1 text-xs text-[var(--danger)]">{addSmeForm.formState.errors.id.message}</p>
+                ) : null}
+              </label>
+              <label className="text-sm font-medium">
+                Display Name
+                <Input {...addSmeForm.register("name")} placeholder="Acme Shop" className="mt-1" />
+              </label>
+              <label className="text-sm font-medium">
+                WhatsApp Phone
+                <Input {...addSmeForm.register("whatsapp_phone")} placeholder="+254700000000" className="mt-1" />
+              </label>
+              <div className="md:col-span-3">
+                <Button type="submit" variant="secondary" disabled={addSmeForm.formState.isSubmitting}>
+                  {addSmeForm.formState.isSubmitting ? "Adding..." : "Add Business"}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </section>
 
         <section className="mt-4 card p-6">
           <h2 className="text-lg font-semibold">Appearance</h2>

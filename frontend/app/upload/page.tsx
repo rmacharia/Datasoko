@@ -7,6 +7,7 @@ import { z } from "zod";
 
 import { AuthGuard } from "@/components/auth-guard";
 import { useAuth } from "@/components/auth-provider";
+import { useOrg } from "@/components/org-provider";
 import { SystemContext } from "@/components/system-context";
 import { useToast } from "@/components/toast-provider";
 import { Button } from "@/components/ui/button";
@@ -47,6 +48,7 @@ type UploadForm = z.infer<typeof uploadSchema>;
 
 export default function UploadPage() {
   const { token } = useAuth();
+  const { activeBusinessId } = useOrg();
   const { pushToast } = useToast();
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -61,7 +63,7 @@ export default function UploadPage() {
   } = useForm<UploadForm>({
     resolver: zodResolver(uploadSchema),
     defaultValues: {
-      businessId: "biz_001",
+      businessId: activeBusinessId,
       weekStart: "",
       weekEnd: "",
       businessCurrency: "KES",
@@ -72,7 +74,7 @@ export default function UploadPage() {
 
   const excelName = watch("excelFile")?.name;
   const mpesaName = watch("mpesaFile")?.name;
-  const businessId = watch("businessId") || "biz_001";
+  const businessId = watch("businessId") || activeBusinessId;
 
   const actionableErrors = useMemo(() => {
     if (!result) return [];

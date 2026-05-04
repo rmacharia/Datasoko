@@ -343,6 +343,84 @@ export function updateAdminSettings(token: string, payload: AdminSettingsUpdateR
   });
 }
 
+// ── Multi-tenancy types ──────────────────────────────────────────────────────
+
+export type OnboardRequest = {
+  organization_id: string;
+  name: string;
+  plan: string;
+};
+
+export type OnboardResponse = {
+  organization_id: string;
+  name: string;
+  plan: string;
+  status: string;
+  expiry_date: string;
+};
+
+export type Business = {
+  id: string;
+  name: string | null;
+  whatsapp_phone: string | null;
+  created_at: string;
+};
+
+export type BusinessesResponse = {
+  organization_id: string;
+  businesses: Business[];
+};
+
+export type CreateBusinessRequest = {
+  id: string;
+  organization_id?: string;
+  name?: string;
+  whatsapp_phone?: string;
+};
+
+export type CreateBusinessResponse = {
+  id: string;
+  organization_id: string;
+  name: string | null;
+  whatsapp_phone: string | null;
+  created_at: string;
+};
+
+export type BillingResponse = {
+  organization_id: string;
+  plan: string | null;
+  status: string | null;
+  expiry_date: string | null;
+  active: boolean;
+  days_remaining: number;
+};
+
+export function onboard(payload: OnboardRequest): Promise<OnboardResponse> {
+  return apiRequest<OnboardResponse>("/onboard", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function getBusinesses(organizationId = "default_org"): Promise<BusinessesResponse> {
+  return apiRequest<BusinessesResponse>(`/businesses?organization_id=${encodeURIComponent(organizationId)}`, {
+    method: "GET",
+  });
+}
+
+export function createBusiness(payload: CreateBusinessRequest): Promise<CreateBusinessResponse> {
+  return apiRequest<CreateBusinessResponse>("/businesses", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function getBilling(organizationId = "default_org"): Promise<BillingResponse> {
+  return apiRequest<BillingResponse>(`/billing/current?organization_id=${encodeURIComponent(organizationId)}`, {
+    method: "GET",
+  });
+}
+
 export function sendAdminWhatsAppTest(
   token: string,
   payload: { to_phone: string; message: string },

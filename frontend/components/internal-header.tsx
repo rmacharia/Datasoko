@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import { useAuth } from "@/components/auth-provider";
+import { useOrg } from "@/components/org-provider";
 import { useSettings } from "@/components/settings-provider";
 import { Button } from "@/components/ui/button";
 import { getHealth, isApiError } from "@/lib/api";
@@ -19,6 +20,7 @@ const links = [
 export function InternalHeader() {
   const { token, logout } = useAuth();
   const { enhancedMode, effectiveEnhancedMode, setEnhancedMode } = useSettings();
+  const { organizationId, activeBusinessId } = useOrg();
 
   const [reachable, setReachable] = useState<boolean | null>(null);
 
@@ -63,6 +65,18 @@ export function InternalHeader() {
         <div className="flex flex-wrap items-center gap-2">
           <span className="badge border border-[var(--border-bright)] bg-[rgba(55,181,255,0.12)] text-[var(--accent)]">DEV</span>
           <span className={reachabilityLabel.cls}>{reachabilityLabel.text}</span>
+          {token ? (
+            <>
+              <span className="rounded-md border border-[var(--border)] bg-[rgba(10,19,33,0.85)] px-2.5 py-1 text-xs">
+                <span className="muted">Org:</span>{" "}
+                <span className="font-semibold text-[var(--text)]">{organizationId}</span>
+              </span>
+              <span className="rounded-md border border-[var(--border)] bg-[rgba(10,19,33,0.85)] px-2.5 py-1 text-xs">
+                <span className="muted">SME:</span>{" "}
+                <span className="font-semibold text-[var(--text)]">{activeBusinessId}</span>
+              </span>
+            </>
+          ) : null}
 
           <label className="inline-flex items-center gap-2 rounded-md border border-[var(--border)] bg-[rgba(10,19,33,0.8)] px-3 py-1 text-xs font-semibold">
             <input
