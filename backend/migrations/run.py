@@ -30,12 +30,18 @@ def _load_module(path: Path) -> Any:
 
 
 def run_migrations(connection: Any) -> None:
+    logger.info("[migration] ensuring schema_migrations tracking table exists")
     with connection.cursor() as cur:
         cur.execute(_ENSURE_TRACKING_SQL)
     connection.commit()
 
     paths = _discover_migrations()
-    logger.info("[migration] found %d migration file(s)", len(paths))
+    logger.info("[migration] discovered %d migration file(s): %s",
+                len(paths), [p.name for p in paths])
+
+    if not paths:
+        logger.warning("[migration] no migration files found — nothing to apply")
+        return
 
     applied = 0
     skipped = 0
@@ -47,7 +53,7 @@ def run_migrations(connection: Any) -> None:
             already = cur.fetchone()
 
         if already is not None:
-            logger.info("[migration] skipped %s (already applied)", migration_id)
+            logger.info("[migration] skipped %s (already recorded in schema_migrations)", migration_id)
             skipped += 1
             continue
 
@@ -58,11 +64,11 @@ def run_migrations(connection: Any) -> None:
             with connection.cursor() as cur:
                 cur.execute(_RECORD_APPLIED_SQL, (migration_id,))
             connection.commit()
-            logger.info("[migration] applied %s", migration_id)
+            logger.info("[migration] applied %s successfully", migration_id)
             applied += 1
         except Exception as exc:
             connection.rollback()
             logger.error("[migration] FAILED %s — rolled back: %s", migration_id, exc)
             raise
 
-    logger.info("[migration] done — applied=%d skipped=%d", applied, skipped)
+    logger.info("[migration] done — applied=%d skipped=%d total=%d", applied, skipped, len(paths))

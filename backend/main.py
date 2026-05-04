@@ -55,23 +55,38 @@ app.include_router(billing_router)
 
 @app.on_event("startup")
 async def _run_migrations_on_startup() -> None:
-    enabled = os.getenv("RUN_MIGRATIONS_ON_STARTUP", "false").lower() in {"1", "true", "yes"}
+    raw_value = os.getenv("RUN_MIGRATIONS_ON_STARTUP")
+    logger.info("[migrations] RUN_MIGRATIONS_ON_STARTUP=%r", raw_value)
+    print(f"RUN_MIGRATIONS_ON_STARTUP={raw_value!r}")
+
+    enabled = (raw_value or "").lower() in {"1", "true", "yes"}
     if not enabled:
-        logger.info("[startup] RUN_MIGRATIONS_ON_STARTUP not set — skipping migrations")
+        logger.info("[migrations] skipped — RUN_MIGRATIONS_ON_STARTUP is not enabled")
         return
 
-    logger.info("[startup] RUN_MIGRATIONS_ON_STARTUP=true — running migrations")
+    logger.info("[migrations] starting")
     connection = None
     try:
         from backend.db.connection import get_connection
         from backend.migrations.run import run_migrations
 
         connection = get_connection()
+        logger.info("[migrations] database connection established")
+
         run_migrations(connection)
-        logger.info("[startup] migrations completed successfully")
+        logger.info("[migrations] completed")
+
+        with connection.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM information_schema.tables "
+                "WHERE table_schema = 'public' AND table_name = 'organizations' LIMIT 1"
+            )
+            if cur.fetchone() is None:
+                logger.warning("[migrations] organizations table still missing after run — forcing re-apply")
+                run_migrations(connection)
+                logger.info("[migrations] forced re-apply completed")
     except Exception as exc:
-        logger.error("[startup] migration failed: %s", exc)
-        # App continues to start — do not raise
+        logger.error("[migrations] FAILED: %s", exc, exc_info=True)
     finally:
         if connection is not None:
             try:
@@ -420,6 +435,9 @@ def whatsapp_weekly_message(
 def admin_status(_: None = Depends(_require_admin_token)) -> dict[str, Any]:
     db_connected = False
     db_error: str | None = None
+    tables_exist = False
+    columns_complete = False
+    missing_columns: list[str] = []
     connection: Any | None = None
 
     try:
@@ -432,11 +450,17 @@ def admin_status(_: None = Depends(_require_admin_token)) -> dict[str, Any]:
 
         with connection.cursor() as cur:
             cur.execute(
-                "SELECT 1 FROM information_schema.tables "
-                "WHERE table_schema = 'public' AND table_name = 'organizations' LIMIT 1"
+                "SELECT table_name FROM information_schema.tables "
+                "WHERE table_schema = 'public' AND table_name IN "
+                "('organizations', 'businesses', 'subscriptions')"
             )
-            if cur.fetchone() is None:
-                db_error = "schema not initialized — multitenancy tables missing (run migrations or apply manual SQL)"
+            found_tables = {row[0] for row in cur.fetchall()}
+            required_tables = {"organizations", "businesses", "subscriptions"}
+            tables_exist = required_tables.issubset(found_tables)
+
+            if not tables_exist:
+                missing_tables = required_tables - found_tables
+                db_error = f"schema not initialized — missing tables: {', '.join(sorted(missing_tables))}"
             else:
                 cur.execute(
                     "SELECT column_name FROM information_schema.columns "
@@ -444,9 +468,12 @@ def admin_status(_: None = Depends(_require_admin_token)) -> dict[str, Any]:
                 )
                 existing_cols = {row[0] for row in cur.fetchall()}
                 required_cols = {"id", "organization_id", "name", "whatsapp_phone", "created_at"}
-                missing = required_cols - existing_cols
-                if missing:
-                    db_error = f"schema incomplete — businesses table missing columns: {', '.join(sorted(missing))}"
+                missing_set = required_cols - existing_cols
+                missing_columns = sorted(missing_set)
+                columns_complete = len(missing_set) == 0
+
+                if not columns_complete:
+                    db_error = f"schema incomplete — businesses missing columns: {', '.join(missing_columns)}"
                 else:
                     db_connected = True
     except Exception as exc:
@@ -464,6 +491,9 @@ def admin_status(_: None = Depends(_require_admin_token)) -> dict[str, Any]:
         "version": _version_payload(),
         "db": {
             "connected": db_connected,
+            "tables_exist": tables_exist,
+            "columns_complete": columns_complete,
+            "missing_columns": missing_columns,
             "error": db_error,
         },
         "last_run": LAST_RUN_SUMMARY,
