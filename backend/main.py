@@ -12,9 +12,13 @@ from urllib import error as url_error
 from urllib import request as url_request
 from uuid import uuid4
 
+import logging
+
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="DataSoko API", version="0.1.0")
 APP_VERSION = "0.1.0"
@@ -38,6 +42,33 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
 )
+
+
+@app.on_event("startup")
+async def _run_migrations_on_startup() -> None:
+    enabled = os.getenv("RUN_MIGRATIONS_ON_STARTUP", "false").lower() in {"1", "true", "yes"}
+    if not enabled:
+        logger.info("[startup] RUN_MIGRATIONS_ON_STARTUP not set — skipping migrations")
+        return
+
+    logger.info("[startup] RUN_MIGRATIONS_ON_STARTUP=true — running migrations")
+    connection = None
+    try:
+        from backend.db.connection import get_connection
+        from backend.migrations.run import run_migrations
+
+        connection = get_connection()
+        run_migrations(connection)
+        logger.info("[startup] migrations completed successfully")
+    except Exception as exc:
+        logger.error("[startup] migration failed: %s", exc)
+        # App continues to start — do not raise
+    finally:
+        if connection is not None:
+            try:
+                connection.close()
+            except Exception:
+                pass
 
 
 class IngestWeeklyRequest(BaseModel):

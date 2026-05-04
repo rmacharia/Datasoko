@@ -55,6 +55,11 @@ if "fastapi" not in sys.modules:
         def add_middleware(self, *args, **kwargs) -> None:  # noqa: ARG002, ANN001
             return None
 
+        def on_event(self, *args, **kwargs):  # noqa: ARG002, ANN001
+            def _decorator(fn):
+                return fn
+            return _decorator
+
     def _identity(*args, **kwargs):  # noqa: ARG001, ANN001
         return None
 
