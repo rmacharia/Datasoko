@@ -323,6 +323,66 @@ def log_activity(
         logger.warning("Failed to log activity: %s", exc)
 
 
+@router.get("/costs")
+def get_analytics_costs(
+    organization_id: str = "default_org",
+    _: None = Depends(_require_admin_token),
+) -> dict[str, Any]:
+    connection = get_connection()
+    try:
+        with connection.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM information_schema.tables WHERE table_name = 'whatsapp_message_log' LIMIT 1"
+            )
+            if cur.fetchone() is None:
+                return {"total_cost": 0, "messages_sent": 0, "avg_cost": 0, "last_7_days": []}
+
+            cur.execute("""
+                SELECT
+                    COUNT(*) AS messages_sent,
+                    COALESCE(SUM(cost_usd), 0) AS total_cost
+                FROM whatsapp_message_log
+                WHERE organization_id = %s AND status IN ('sent', 'delivered')
+            """, (organization_id,))
+            row = cur.fetchone()
+            messages_sent = row[0] if row else 0
+            total_cost = float(row[1]) if row else 0.0
+            avg_cost = total_cost / messages_sent if messages_sent > 0 else 0.0
+
+            cur.execute("""
+                SELECT
+                    DATE(created_at) AS day,
+                    COUNT(*) AS count,
+                    COALESCE(SUM(cost_usd), 0) AS cost
+                FROM whatsapp_message_log
+                WHERE organization_id = %s
+                  AND status IN ('sent', 'delivered')
+                  AND created_at >= NOW() - INTERVAL '7 days'
+                GROUP BY DATE(created_at)
+                ORDER BY day ASC
+            """, (organization_id,))
+            daily_rows = cur.fetchall()
+
+        last_7_days = [
+            {"date": row[0].isoformat(), "count": row[1], "cost": float(row[2])}
+            for row in daily_rows
+        ]
+
+        return {
+            "total_cost": round(total_cost, 4),
+            "messages_sent": messages_sent,
+            "avg_cost": round(avg_cost, 4),
+            "last_7_days": last_7_days,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("analytics/costs error: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    finally:
+        connection.close()
+
+
 def log_whatsapp_message(
     business_id: str,
     phone: str,

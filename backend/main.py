@@ -39,7 +39,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins_from_env(),
     allow_credentials=False,
-    allow_methods=["GET", "POST", "PUT", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
 )
 
@@ -48,11 +48,13 @@ from backend.routes.onboarding import router as onboarding_router
 from backend.routes.businesses import router as businesses_router
 from backend.routes.billing import router as billing_router
 from backend.routes.analytics import router as analytics_router
+from backend.routes.schedules import router as schedules_router
 
 app.include_router(onboarding_router)
 app.include_router(businesses_router)
 app.include_router(billing_router)
 app.include_router(analytics_router)
+app.include_router(schedules_router)
 
 
 @app.on_event("startup")
@@ -94,6 +96,14 @@ async def _run_migrations_on_startup() -> None:
                 connection.close()
             except Exception:
                 pass
+
+
+@app.on_event("startup")
+async def _start_scheduler_on_startup() -> None:
+    if os.getenv("RUN_SCHEDULER", "").lower() == "true":
+        from backend.scheduler import start_scheduler
+        start_scheduler()
+        logger.info("[startup] scheduler started via RUN_SCHEDULER=true")
 
 
 class IngestWeeklyRequest(BaseModel):

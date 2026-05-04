@@ -678,3 +678,99 @@ export function getAnalyticsActivity(
   });
   return apiRequest<AnalyticsActivity[]>(`/analytics/activity?${query}`, { method: "GET", token });
 }
+
+// ── Cost tracking ──────────────────────────────────────────────────────────
+
+export type AnalyticsCostsResponse = {
+  total_cost: number;
+  messages_sent: number;
+  avg_cost: number;
+  last_7_days: { date: string; count: number; cost: number }[];
+};
+
+export function getAnalyticsCosts(
+  token: string,
+  params: { organizationId: string },
+): Promise<AnalyticsCostsResponse> {
+  const query = new URLSearchParams({ organization_id: params.organizationId });
+  return apiRequest<AnalyticsCostsResponse>(`/analytics/costs?${query}`, { method: "GET", token });
+}
+
+// ── Schedules ──────────────────────────────────────────────────────────────
+
+export type Schedule = {
+  id: string;
+  organization_id: string;
+  business_id: string | null;
+  frequency: "daily" | "weekly" | "monthly";
+  time_of_day: string;
+  day_of_week: number | null;
+  day_of_month: number | null;
+  start_date: string;
+  end_date: string | null;
+  send_whatsapp: boolean;
+  is_active: boolean;
+  created_at?: string;
+};
+
+export type CreateScheduleRequest = {
+  organization_id: string;
+  business_id?: string | null;
+  frequency: string;
+  time_of_day: string;
+  day_of_week?: number | null;
+  day_of_month?: number | null;
+  start_date: string;
+  end_date?: string | null;
+  send_whatsapp: boolean;
+};
+
+export function getSchedules(
+  token: string,
+  organizationId: string,
+): Promise<Schedule[]> {
+  const query = new URLSearchParams({ organization_id: organizationId });
+  return apiRequest<Schedule[]>(`/schedules?${query}`, { method: "GET", token });
+}
+
+export function createSchedule(
+  token: string,
+  payload: CreateScheduleRequest,
+): Promise<Schedule> {
+  return apiRequest<Schedule>("/schedules", {
+    method: "POST",
+    token,
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateSchedule(
+  token: string,
+  scheduleId: string,
+  payload: Partial<{
+    frequency: string;
+    time_of_day: string;
+    day_of_week: number;
+    day_of_month: number;
+    start_date: string;
+    end_date: string;
+    send_whatsapp: boolean;
+    is_active: boolean;
+  }>,
+): Promise<{ id: string; updated: boolean }> {
+  return apiRequest<{ id: string; updated: boolean }>(`/schedules/${scheduleId}`, {
+    method: "PATCH",
+    token,
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteSchedule(
+  token: string,
+  scheduleId: string,
+): Promise<{ id: string; deleted: boolean }> {
+  return apiRequest<{ id: string; deleted: boolean }>(`/schedules/${scheduleId}`, {
+    method: "DELETE",
+    token,
+  });
+}

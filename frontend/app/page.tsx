@@ -20,19 +20,23 @@ import { ActivityTimeline } from "@/components/analytics/activity-timeline";
 import {
   getAdminStatus,
   getAnalyticsActivity,
+  getAnalyticsCosts,
   getAnalyticsMetrics,
   getAnalyticsUploads,
   getAnalyticsWhatsApp,
   getBilling,
   getBusinesses,
+  getSchedules,
   isApiError,
   type AdminStatusResponse,
   type AnalyticsActivity,
+  type AnalyticsCostsResponse,
   type AnalyticsMetricsResponse,
   type AnalyticsUpload,
   type AnalyticsWhatsAppStats,
   type BillingResponse,
   type BusinessesResponse,
+  type Schedule,
 } from "@/lib/api";
 
 type LoadState<T> = {
@@ -62,6 +66,8 @@ export default function OverviewPage() {
   const [analyticsUploads, setAnalyticsUploads] = useState<LoadState<AnalyticsUpload[]>>({ loading: false, data: null, error: null });
   const [analyticsWhatsApp, setAnalyticsWhatsApp] = useState<LoadState<AnalyticsWhatsAppStats>>({ loading: false, data: null, error: null });
   const [analyticsActivity, setAnalyticsActivity] = useState<LoadState<AnalyticsActivity[]>>({ loading: false, data: null, error: null });
+  const [analyticsCosts, setAnalyticsCosts] = useState<LoadState<AnalyticsCostsResponse>>({ loading: false, data: null, error: null });
+  const [schedulesState, setSchedulesState] = useState<LoadState<Schedule[]>>({ loading: false, data: null, error: null });
 
   useEffect(() => {
     if (!token) return;
@@ -112,24 +118,32 @@ export default function OverviewPage() {
     setAnalyticsUploads({ loading: true, data: null, error: null });
     setAnalyticsWhatsApp({ loading: true, data: null, error: null });
     setAnalyticsActivity({ loading: true, data: null, error: null });
+    setAnalyticsCosts({ loading: true, data: null, error: null });
+    setSchedulesState({ loading: true, data: null, error: null });
 
     try {
-      const [metrics, uploads, whatsapp, activity] = await Promise.all([
+      const [metrics, uploads, whatsapp, activity, costs, schedules] = await Promise.all([
         getAnalyticsMetrics(token, params),
         getAnalyticsUploads(token, params),
         getAnalyticsWhatsApp(token, params),
         getAnalyticsActivity(token, params),
+        getAnalyticsCosts(token, { organizationId }),
+        getSchedules(token, organizationId),
       ]);
       setAnalyticsMetrics({ loading: false, data: metrics, error: null });
       setAnalyticsUploads({ loading: false, data: uploads, error: null });
       setAnalyticsWhatsApp({ loading: false, data: whatsapp, error: null });
       setAnalyticsActivity({ loading: false, data: activity, error: null });
+      setAnalyticsCosts({ loading: false, data: costs, error: null });
+      setSchedulesState({ loading: false, data: schedules, error: null });
     } catch (err) {
       const msg = isApiError(err) ? err.message : "Failed to load analytics.";
       setAnalyticsMetrics((prev) => prev.data ? prev : { loading: false, data: null, error: msg });
       setAnalyticsUploads((prev) => prev.data ? prev : { loading: false, data: null, error: msg });
       setAnalyticsWhatsApp((prev) => prev.data ? prev : { loading: false, data: null, error: msg });
       setAnalyticsActivity((prev) => prev.data ? prev : { loading: false, data: null, error: msg });
+      setAnalyticsCosts((prev) => prev.data ? prev : { loading: false, data: null, error: msg });
+      setSchedulesState((prev) => prev.data ? prev : { loading: false, data: null, error: msg });
     }
   }, [token, organizationId, activeBusinessId]);
 
@@ -426,6 +440,88 @@ export default function OverviewPage() {
                   ) : analyticsWhatsApp.data ? (
                     <WhatsAppStats stats={analyticsWhatsApp.data} />
                   ) : null}
+                </div>
+              </section>
+
+              {/* Scheduled Jobs + Cost Tracking */}
+              <section className="mt-4 grid gap-4 lg:grid-cols-2">
+                <div className="card p-5">
+                  <h3 className="mb-3 text-base font-semibold">Scheduled Jobs</h3>
+                  {schedulesState.loading ? (
+                    <p className="text-sm muted">Loading schedules...</p>
+                  ) : schedulesState.error ? (
+                    <ErrorBadge message="Data unavailable" />
+                  ) : schedulesState.data && schedulesState.data.length > 0 ? (
+                    <dl className="space-y-2">
+                      <div>
+                        <dt className="inline muted text-sm">Active Schedules:</dt>{" "}
+                        <dd className="inline text-2xl font-bold tabular-nums text-[var(--accent)]">
+                          {schedulesState.data.filter((s) => s.is_active).length}
+                        </dd>
+                        <span className="ml-2 text-sm muted">/ {schedulesState.data.length} total</span>
+                      </div>
+                      <div className="mt-2 space-y-1">
+                        {schedulesState.data.filter((s) => s.is_active).slice(0, 3).map((s) => (
+                          <div key={s.id} className="flex items-center gap-2 rounded border border-[var(--border)] bg-[rgba(10,19,33,0.4)] px-3 py-1.5 text-xs">
+                            <span className="capitalize font-medium">{s.frequency}</span>
+                            <span className="muted">at {s.time_of_day}</span>
+                            <span className="ml-auto font-mono text-[var(--accent)]">
+                              {s.business_id || "All SMEs"}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </dl>
+                  ) : (
+                    <p className="text-sm muted">No schedules configured. Set up in Settings.</p>
+                  )}
+                </div>
+
+                <div className="card p-5">
+                  <h3 className="mb-3 text-base font-semibold">WhatsApp Costs</h3>
+                  {analyticsCosts.loading ? (
+                    <p className="text-sm muted">Loading costs...</p>
+                  ) : analyticsCosts.error ? (
+                    <ErrorBadge message="Data unavailable" />
+                  ) : analyticsCosts.data ? (
+                    <dl className="space-y-2">
+                      <div className="grid grid-cols-3 gap-3">
+                        <div>
+                          <dt className="text-xs muted">Messages Sent</dt>
+                          <dd className="text-xl font-bold tabular-nums text-[var(--accent)]">
+                            {analyticsCosts.data.messages_sent}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt className="text-xs muted">Total Cost</dt>
+                          <dd className="text-xl font-bold tabular-nums">
+                            ${analyticsCosts.data.total_cost.toFixed(2)}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt className="text-xs muted">Avg Cost</dt>
+                          <dd className="text-xl font-bold tabular-nums">
+                            ${analyticsCosts.data.avg_cost.toFixed(4)}
+                          </dd>
+                        </div>
+                      </div>
+                      {analyticsCosts.data.last_7_days.length > 0 ? (
+                        <div className="mt-2 space-y-1">
+                          {analyticsCosts.data.last_7_days.map((d) => (
+                            <div key={d.date} className="flex items-center justify-between text-xs">
+                              <span className="muted">{new Date(d.date).toLocaleDateString("en-KE", { weekday: "short", month: "short", day: "numeric" })}</span>
+                              <span className="tabular-nums">{d.count} msg{d.count !== 1 ? "s" : ""}</span>
+                              <span className="tabular-nums font-medium">${d.cost.toFixed(4)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="mt-2 text-xs muted">No messages in the last 7 days.</p>
+                      )}
+                    </dl>
+                  ) : (
+                    <p className="text-sm muted">No cost data available.</p>
+                  )}
                 </div>
               </section>
 

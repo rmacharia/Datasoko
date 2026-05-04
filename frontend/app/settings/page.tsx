@@ -15,6 +15,7 @@ import { useToast } from "@/components/toast-provider";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ScheduleManager } from "@/components/schedule-manager";
 import {
   createBusiness,
   getAdminSettings,
@@ -678,6 +679,8 @@ export default function SettingsPage() {
               {testSummary ? <pre className="code-panel mt-3 overflow-auto p-3 text-xs">{testSummary}</pre> : null}
             </div>
           </section>
+
+          <ScheduleManager />
 
           <div>
             <Button type="button" variant="primary" disabled={settingsForm.formState.isSubmitting} onClick={() => void onSave()}>
