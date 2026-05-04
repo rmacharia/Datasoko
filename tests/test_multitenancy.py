@@ -212,10 +212,18 @@ class TestMigration001(unittest.TestCase):
         self.assertIn("INSERT INTO organizations", all_sql)
 
     def test_backfill_excludes_null_business_ids(self) -> None:
-        conn = self._run_001()
+        from backend.migrations.migration_001_multitenancy import run
+        conn = RecordingConnection()
+        conn._fetchone = (1,)  # simulate ingestion_weekly_payloads exists
+        run(conn)
         all_sql = " ".join(q for q, _ in conn.executed)
         self.assertIn("WHERE business_id IS NOT NULL", all_sql)
         self.assertIn("INSERT INTO businesses", all_sql)
+
+    def test_backfill_skipped_when_ingestion_table_missing(self) -> None:
+        conn = self._run_001()  # _fetchone defaults to None
+        all_sql = " ".join(q for q, _ in conn.executed)
+        self.assertNotIn("FROM ingestion_weekly_payloads", all_sql)
 
     def test_creates_index_on_organization_id(self) -> None:
         conn = self._run_001()

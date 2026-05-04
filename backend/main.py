@@ -429,9 +429,22 @@ def admin_status(_: None = Depends(_require_admin_token)) -> dict[str, Any]:
         connection = create_postgres_connection()
         store = PostgresIngestionStore(connection)
         store.ensure_table()
-        db_connected = True
+
+        with connection.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM information_schema.tables "
+                "WHERE table_schema = 'public' AND table_name = 'organizations' LIMIT 1"
+            )
+            if cur.fetchone() is None:
+                db_error = "schema not initialized — multitenancy tables missing (run migrations or apply manual SQL)"
+            else:
+                db_connected = True
     except Exception as exc:
-        db_error = str(exc)
+        error_msg = str(exc)
+        if "does not exist" in error_msg:
+            db_error = "schema not initialized — run migrations or apply manual SQL"
+        else:
+            db_error = error_msg
     finally:
         if connection is not None:
             connection.close()

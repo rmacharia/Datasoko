@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
-_SQL = [
+logger = logging.getLogger(__name__)
+
+_DDL = [
     """
     CREATE TABLE IF NOT EXISTS organizations (
         id          TEXT PRIMARY KEY,
@@ -36,18 +39,32 @@ _SQL = [
     VALUES ('default_org', 'Default Organization')
     ON CONFLICT DO NOTHING
     """,
-    """
-    INSERT INTO businesses (id, organization_id)
-    SELECT DISTINCT business_id, 'default_org'
-    FROM ingestion_weekly_payloads
-    WHERE business_id IS NOT NULL
-    ON CONFLICT (id) DO NOTHING
-    """,
 ]
+
+_BACKFILL_SQL = """
+INSERT INTO businesses (id, organization_id)
+SELECT DISTINCT business_id, 'default_org'
+FROM ingestion_weekly_payloads
+WHERE business_id IS NOT NULL
+ON CONFLICT (id) DO NOTHING
+""".strip()
+
+_TABLE_EXISTS_SQL = """
+SELECT 1 FROM information_schema.tables
+WHERE table_schema = 'public' AND table_name = 'ingestion_weekly_payloads'
+LIMIT 1
+""".strip()
 
 
 def run(connection: Any) -> None:
     """Apply all DDL for multi-tenancy. Caller (runner) owns commit/rollback."""
     with connection.cursor() as cur:
-        for sql in _SQL:
+        for sql in _DDL:
             cur.execute(sql.strip())
+
+        cur.execute(_TABLE_EXISTS_SQL)
+        if cur.fetchone() is not None:
+            cur.execute(_BACKFILL_SQL)
+            logger.info("[migration_001] backfilled businesses from ingestion_weekly_payloads")
+        else:
+            logger.info("[migration_001] skipped backfill — ingestion_weekly_payloads does not exist yet")
