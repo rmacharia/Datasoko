@@ -4,6 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
 
 import { useAuth } from "@/components/auth-provider";
+import { useOrg } from "@/components/org-provider";
 
 const PUBLIC_PATHS = ["/login", "/setup"];
 
@@ -17,12 +18,15 @@ function isAdminPath(pathname: string): boolean {
 
 /**
  * Enforces the platform-vs-tenant split at the routing layer:
- *   - super_admin may only visit /admin/* routes; anything else bounces to /admin
+ *   - super_admin on /admin/* → always allowed (Platform Mode)
+ *   - super_admin on tenant routes → allowed only when selectedOrgId is set (Tenant Mode);
+ *     otherwise bounces to /admin so they must choose an org first
  *   - tenant users (admin, sme_user) may never hit /admin/* routes
  * Public auth pages (/login, /setup) stay open to everyone.
  */
 export function RouteGuard({ children }: { children: React.ReactNode }) {
   const { user, isReady } = useAuth();
+  const { selectedOrgId } = useOrg();
   const pathname = usePathname();
   const router = useRouter();
 
@@ -34,15 +38,23 @@ export function RouteGuard({ children }: { children: React.ReactNode }) {
 
     const onAdminPath = isAdminPath(pathname);
 
-    if (user.role === "super_admin" && !onAdminPath) {
-      router.replace("/admin");
+    if (user.role === "super_admin") {
+      if (onAdminPath) {
+        // Platform Mode — always allow /admin/*
+        return;
+      }
+      // Tenant route: only allow when an org has been selected
+      if (selectedOrgId === null) {
+        router.replace("/admin");
+      }
       return;
     }
-    if (user.role !== "super_admin" && onAdminPath) {
+
+    // Non-super_admin users must never visit /admin/*
+    if (onAdminPath) {
       router.replace("/");
-      return;
     }
-  }, [isReady, pathname, user, router]);
+  }, [isReady, pathname, user, selectedOrgId, router]);
 
   return <>{children}</>;
 }
