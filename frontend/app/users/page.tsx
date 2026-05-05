@@ -7,11 +7,13 @@ import { z } from "zod";
 
 import { AuthGuard } from "@/components/auth-guard";
 import { useAuth } from "@/components/auth-provider";
+import { useOrg } from "@/components/org-provider";
 import { SystemContext } from "@/components/system-context";
 import { useToast } from "@/components/toast-provider";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import {
   createUser,
   deleteUser,
@@ -32,6 +34,7 @@ type CreateUserForm = z.infer<typeof createUserSchema>;
 
 export default function UsersPage() {
   const { token, user } = useAuth();
+  const { organizationId } = useOrg();
   const { pushToast } = useToast();
 
   const [users, setUsers] = useState<ManagedUser[]>([]);
@@ -64,7 +67,7 @@ export default function UsersPage() {
         email: values.email,
         password: values.password,
         role: values.role,
-        organization_id: user?.organization_id ?? undefined,
+        organization_id: organizationId ?? user?.organization_id ?? undefined,
         business_id: values.role === "sme_user" ? values.business_id?.trim() || undefined : undefined,
       });
       setUsers((prev) => [created, ...prev]);
@@ -119,6 +122,11 @@ export default function UsersPage() {
         <section className="mt-4 card p-6">
           <h2 className="text-lg font-semibold">Create User</h2>
           <p className="mt-1 text-sm muted">Add a new admin or SME user to this organization.</p>
+          {user?.role === "super_admin" && organizationId ? (
+            <p className="mt-1 text-xs text-[var(--accent)]">
+              Creating user in org: <span className="font-mono">{organizationId}</span>
+            </p>
+          ) : null}
 
           <form className="mt-4 grid gap-4 md:grid-cols-2" onSubmit={onCreateUser}>
             <label className="text-sm font-medium">
@@ -139,13 +147,10 @@ export default function UsersPage() {
 
             <label className="text-sm font-medium">
               Role <span className="text-[var(--danger)]">*</span>
-              <select
-                {...form.register("role")}
-                className="mt-1 w-full rounded-md border border-[var(--border)] bg-[rgba(11,21,37,0.9)] px-3 py-2 text-sm"
-              >
+              <Select {...form.register("role")} className="mt-1">
                 <option value="admin">Admin</option>
                 <option value="sme_user">SME User</option>
-              </select>
+              </Select>
             </label>
 
             {watchRole === "sme_user" ? (
