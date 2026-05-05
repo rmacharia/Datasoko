@@ -81,6 +81,10 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
       setSuperAdminApiContext({ orgId: selectedOrgId, bizId: selectedBusinessId });
     } else {
       setSuperAdminApiContext(null);
+      if (!user && typeof window !== "undefined") {
+        // on actual logout, remove persisted super_admin context
+        window.localStorage.removeItem("datasoko_context");
+      }
     }
   }, [user?.role, selectedOrgId, selectedBusinessId]);
 

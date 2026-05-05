@@ -124,7 +124,7 @@ export function InternalHeader() {
           setBusinesses(filtered);
         }
       } catch {
-        // Silently fail
+        if (isMounted) setBusinesses([]);
       }
     };
 

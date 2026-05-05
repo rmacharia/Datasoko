@@ -7,24 +7,16 @@ from typing import Any
 from fastapi import APIRouter, Depends, Header, HTTPException
 
 from backend.auth import (
-    AuthUser,
     RequestContext,
     get_current_user,
     is_sme_user,
     require_tenant_or_platform,
-    require_tenant_user,
 )
 from backend.db.connection import get_connection
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
-
-
-def _tenant_org(user: AuthUser) -> str:
-    if not user.organization_id:
-        raise HTTPException(status_code=400, detail="organization_id missing from token")
-    return user.organization_id
 
 
 def _ctx_org(ctx: RequestContext) -> str:
@@ -58,6 +50,7 @@ SELECT
     payload
 FROM ingestion_weekly_payloads
 WHERE business_id = %s
+  AND organization_id = %s
   AND dataset = 'excel_sales'
 ORDER BY week_start ASC
 LIMIT 52
@@ -75,6 +68,7 @@ SELECT
     created_at
 FROM ingestion_weekly_payloads
 WHERE business_id = %s
+  AND organization_id = %s
 ORDER BY created_at DESC
 LIMIT 20
 """.strip()
@@ -97,6 +91,7 @@ SELECT
     created_at
 FROM activity_log
 WHERE business_id = %s
+  AND organization_id = %s
 ORDER BY created_at DESC
 LIMIT 30
 """.strip()
@@ -113,7 +108,7 @@ def get_analytics_metrics(
     connection = get_connection()
     try:
         with connection.cursor() as cur:
-            cur.execute(_METRICS_SQL, (business_id,))
+            cur.execute(_METRICS_SQL, (business_id, organization_id))
             rows = cur.fetchall()
 
         revenue_trend: list[dict[str, Any]] = []
@@ -221,7 +216,7 @@ def get_analytics_uploads(
     connection = get_connection()
     try:
         with connection.cursor() as cur:
-            cur.execute(_UPLOADS_SQL, (business_id,))
+            cur.execute(_UPLOADS_SQL, (business_id, organization_id))
             rows = cur.fetchall()
 
         result = []
@@ -305,7 +300,7 @@ def get_analytics_activity(
             if cur.fetchone() is None:
                 return []
 
-            cur.execute(_ACTIVITY_SQL, (business_id,))
+            cur.execute(_ACTIVITY_SQL, (business_id, organization_id))
             rows = cur.fetchall()
 
         return [
