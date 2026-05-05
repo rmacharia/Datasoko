@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 
 import { AuthGuard } from "@/components/auth-guard";
 import { useAuth } from "@/components/auth-provider";
+import { useOrg } from "@/components/org-provider";
 import { useToast } from "@/components/toast-provider";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -19,6 +20,7 @@ import {
 export default function AdminOrganizationsPage() {
   const router = useRouter();
   const { token, user, isReady } = useAuth();
+  const { setSelectedOrg } = useOrg();
   const { pushToast } = useToast();
 
   const [orgs, setOrgs] = useState<PlatformOrganization[]>([]);
@@ -134,6 +136,7 @@ export default function AdminOrganizationsPage() {
                     <th className="px-4 py-2 font-semibold">Plan</th>
                     <th className="px-4 py-2 font-semibold">Status</th>
                     <th className="px-4 py-2 font-semibold">Created</th>
+                    <th className="px-4 py-2 font-semibold">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -150,6 +153,16 @@ export default function AdminOrganizationsPage() {
                         </span>
                       </td>
                       <td className="px-4 py-2 text-xs muted">{new Date(o.created_at).toLocaleDateString()}</td>
+                      <td className="px-4 py-2">
+                        {user.role === "super_admin" && (
+                          <button
+                            onClick={() => { setSelectedOrg(o.id); router.push("/"); }}
+                            className="rounded-md border border-[var(--border)] bg-[rgba(10,19,33,0.8)] px-2.5 py-1 text-xs hover:bg-[rgba(79,121,199,0.14)]"
+                          >
+                            View as user →
+                          </button>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

@@ -5,12 +5,14 @@ import { useEffect, useState } from "react";
 
 import { AuthGuard } from "@/components/auth-guard";
 import { useAuth } from "@/components/auth-provider";
+import { useOrg } from "@/components/org-provider";
 import { Alert } from "@/components/ui/alert";
 import { getPlatformBusinesses, isApiError, type PlatformBusiness } from "@/lib/api";
 
 export default function AdminBusinessesPage() {
   const router = useRouter();
   const { token, user, isReady } = useAuth();
+  const { setSelectedOrg, setSelectedBusiness } = useOrg();
   const [businesses, setBusinesses] = useState<PlatformBusiness[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -57,6 +59,7 @@ export default function AdminBusinessesPage() {
                     <th className="px-4 py-2 font-semibold">Organization</th>
                     <th className="px-4 py-2 font-semibold">WhatsApp</th>
                     <th className="px-4 py-2 font-semibold">Created</th>
+                    <th className="px-4 py-2 font-semibold">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -67,6 +70,20 @@ export default function AdminBusinessesPage() {
                       <td className="px-4 py-2 font-mono text-xs">{b.organization_id}</td>
                       <td className="px-4 py-2 text-xs muted">{b.whatsapp_phone ?? "—"}</td>
                       <td className="px-4 py-2 text-xs muted">{new Date(b.created_at).toLocaleDateString()}</td>
+                      <td className="px-4 py-2">
+                        {user.role === "super_admin" && (
+                          <button
+                            onClick={() => {
+                              setSelectedOrg(b.organization_id);
+                              setSelectedBusiness(b.id);
+                              router.push("/");
+                            }}
+                            className="rounded-md border border-[var(--border)] bg-[rgba(10,19,33,0.8)] px-2.5 py-1 text-xs hover:bg-[rgba(79,121,199,0.14)]"
+                          >
+                            View as user →
+                          </button>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
