@@ -71,13 +71,13 @@ export default function OverviewPage() {
 
   useEffect(() => {
     if (!isReady || !isAuthenticated || !user) return;
-    // Super admins are platform-scoped and have no tenant — send them to
-    // the admin console and never run the tenant-onboarding check.
-    if (user.role === "super_admin") {
-      router.replace("/admin");
-      return;
-    }
     let mounted = true;
+    // Super admins have no tenant billing — skip the onboarding check entirely
+    // and let them see the Overview page directly.
+    if (user.role === "super_admin") {
+      setOnboardingChecked(true);
+      return () => { mounted = false; };
+    }
     if (!user.organization_id) {
       setOnboardingChecked(true);
       return () => { mounted = false; };
