@@ -3,6 +3,7 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 
 import { useAuth } from "@/components/auth-provider";
+import { setSuperAdminApiContext } from "@/lib/api";
 
 const ORG_ID_KEY = "datasoko_org_id";
 const BIZ_ID_KEY = "datasoko_active_biz_id";
@@ -71,6 +72,17 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
     if (storedOrg) setOrgIdState(storedOrg);
     if (storedBiz) setBizIdState(storedBiz);
   }, [user]);
+
+  // Keep the API layer's super_admin singleton in sync.
+  // Clear it on logout (user === null) or when the role is not super_admin.
+  // Only inject when orgId is non-null so Platform Mode sends no org headers.
+  useEffect(() => {
+    if (user?.role === "super_admin") {
+      setSuperAdminApiContext({ orgId: selectedOrgId, bizId: selectedBusinessId });
+    } else {
+      setSuperAdminApiContext(null);
+    }
+  }, [user?.role, selectedOrgId, selectedBusinessId]);
 
   const value = useMemo<OrgContextValue>(
     () => ({

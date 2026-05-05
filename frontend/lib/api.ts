@@ -1,5 +1,24 @@
 import { getApiBaseUrlCandidates } from "@/lib/config";
 
+// ── Super-admin context singleton ───────────────────────────────────────────
+// React components call setSuperAdminApiContext; the API layer reads it.
+// This module-level singleton is intentionally React-unaware.
+
+let _superAdminContext: { orgId: string | null; bizId: string | null } | null = null;
+
+export function setSuperAdminApiContext(
+  ctx: { orgId: string | null; bizId: string | null } | null,
+): void {
+  _superAdminContext = ctx;
+}
+
+export function getSuperAdminApiContext(): {
+  orgId: string | null;
+  bizId: string | null;
+} | null {
+  return _superAdminContext;
+}
+
 export type ApiError = {
   status: number;
   message: string;
@@ -389,6 +408,16 @@ export async function apiRequest<T>(
     headers.set("Authorization", `Bearer ${options.token}`);
   }
 
+  // Inject super_admin tenant-scoping headers when a context is active.
+  // Only sent when orgId is non-null (Platform Mode must NOT send org headers).
+  const saCtx = getSuperAdminApiContext();
+  if (saCtx?.orgId) {
+    headers.set("X-Organization-Id", saCtx.orgId);
+    if (saCtx.bizId) {
+      headers.set("X-Business-Id", saCtx.bizId);
+    }
+  }
+
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const baseUrls = getApiBaseUrlCandidates();
   let lastNetworkError: unknown = null;
@@ -711,6 +740,15 @@ export function uploadAdminWeekly(request: AdminUploadWeeklyRequest): Promise<Ad
       const xhr = new XMLHttpRequest();
       xhr.open("POST", `${baseUrl}/admin/upload/weekly`);
       xhr.setRequestHeader("Authorization", `Bearer ${request.token}`);
+
+      // Inject super_admin tenant-scoping headers (same rule as apiRequest).
+      const xhrSaCtx = getSuperAdminApiContext();
+      if (xhrSaCtx?.orgId) {
+        xhr.setRequestHeader("X-Organization-Id", xhrSaCtx.orgId);
+        if (xhrSaCtx.bizId) {
+          xhr.setRequestHeader("X-Business-Id", xhrSaCtx.bizId);
+        }
+      }
 
       xhr.upload.onprogress = (event) => {
         if (!request.onProgress) {
