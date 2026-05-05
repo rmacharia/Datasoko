@@ -15,6 +15,7 @@ import { useToast } from "@/components/toast-provider";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import { ScheduleManager } from "@/components/schedule-manager";
 import {
   createBusiness,
@@ -467,16 +468,16 @@ export default function SettingsPage() {
           <div className="mt-4 grid gap-4 md:grid-cols-2">
             <label className="text-sm font-medium" htmlFor="theme">
               Theme
-              <select
+              <Select
                 id="theme"
                 value={theme}
                 onChange={(event) => setTheme(event.target.value as ThemePreference)}
-                className="mt-1 w-full rounded-md border border-[var(--border)] bg-[rgba(11,21,37,0.9)] px-3 py-2 text-sm"
+                className="mt-1"
               >
                 <option value="system">System</option>
                 <option value="dark">Dark</option>
                 <option value="light">Light</option>
-              </select>
+              </Select>
             </label>
 
             <label className="text-sm font-medium">
@@ -526,13 +527,10 @@ export default function SettingsPage() {
             <div className="mt-4 grid gap-4 md:grid-cols-2">
               <label className="text-sm font-medium">
                 Provider
-                <select
-                  {...settingsForm.register("ai_provider")}
-                  className="mt-1 w-full rounded-md border border-[var(--border)] bg-[rgba(11,21,37,0.9)] px-3 py-2 text-sm"
-                >
+                <Select {...settingsForm.register("ai_provider")} className="mt-1">
                   <option value="azure_openai">Azure OpenAI</option>
                   <option value="openai">OpenAI</option>
-                </select>
+                </Select>
               </label>
               <label className="text-sm font-medium">
                 Model
@@ -566,13 +564,10 @@ export default function SettingsPage() {
             <div className="mt-4 grid gap-4 md:grid-cols-2">
               <label className="text-sm font-medium">
                 Provider
-                <select
-                  {...settingsForm.register("whatsapp_provider")}
-                  className="mt-1 w-full rounded-md border border-[var(--border)] bg-[rgba(11,21,37,0.9)] px-3 py-2 text-sm"
-                >
+                <Select {...settingsForm.register("whatsapp_provider")} className="mt-1">
                   <option value="twilio_whatsapp">Twilio WhatsApp (Active)</option>
                   <option value="meta_cloud_api" disabled>Meta Cloud API (Coming Soon)</option>
-                </select>
+                </Select>
               </label>
               <label className="text-sm font-medium">
                 Sender Display Name
