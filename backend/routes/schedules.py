@@ -10,8 +10,9 @@ from pydantic import BaseModel, Field
 
 from backend.auth import (
     AuthUser,
+    RequestContext,
     require_org_admin_only,
-    require_tenant_user,
+    require_tenant_or_platform,
 )
 from backend.db.connection import get_connection
 
@@ -122,9 +123,11 @@ def create_schedule(
 
 @router.get("")
 def list_schedules(
-    user: AuthUser = Depends(require_tenant_user),
+    ctx: RequestContext = Depends(require_tenant_or_platform),
 ) -> list[dict[str, Any]]:
-    organization_id = _require_org(user)
+    organization_id = ctx.organization_id
+    if not organization_id:
+        raise HTTPException(status_code=400, detail="organization_id missing from context")
     conn = get_connection()
     try:
         with conn.cursor() as cur:

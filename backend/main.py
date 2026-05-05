@@ -210,6 +210,32 @@ def _require_admin_token(authorization: str | None = Header(default=None, alias=
         raise HTTPException(status_code=401, detail="Invalid admin token.")
 
 
+def _require_platform_access(authorization: str | None = Header(default=None, alias="Authorization")) -> None:
+    """Accept either the raw ADMIN_TOKEN or a JWT belonging to a super_admin user.
+
+    This allows both legacy service-to-service calls (using the env-var token)
+    and the frontend (which sends JWTs after login) to reach platform-only routes.
+    """
+    from backend.auth import decode_jwt, ROLE_SUPER_ADMIN, _normalize_role  # type: ignore[attr-defined]
+
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing bearer token.")
+
+    provided = authorization.removeprefix("Bearer ").strip()
+
+    # Fast-path: raw ADMIN_TOKEN (service-level calls, CI, etc.)
+    admin_token = os.getenv("ADMIN_TOKEN", "").strip()
+    if admin_token and hmac.compare_digest(provided, admin_token):
+        return
+
+    # JWT path: super_admin users logged in via the UI
+    payload = decode_jwt(provided)
+    if payload and _normalize_role(payload.get("role")) == ROLE_SUPER_ADMIN:
+        return
+
+    raise HTTPException(status_code=401, detail="Invalid or expired token.")
+
+
 def _summary_from_quality(
     *,
     business_id: str,
@@ -546,7 +572,7 @@ def whatsapp_weekly_message(
 
 
 @app.get("/admin/status")
-def admin_status(_: None = Depends(_require_admin_token)) -> dict[str, Any]:
+def admin_status(_: None = Depends(_require_platform_access)) -> dict[str, Any]:
     db_connected = False
     db_error: str | None = None
     tables_exist = False
@@ -929,12 +955,12 @@ def admin_job_status(job_id: str, _: None = Depends(_require_admin_token)) -> di
 
 
 @app.get("/admin/settings")
-def admin_get_settings(_: None = Depends(_require_admin_token)) -> dict[str, Any]:
+def admin_get_settings(_: None = Depends(_require_platform_access)) -> dict[str, Any]:
     return _settings_response()
 
 
 @app.put("/admin/settings")
-def admin_update_settings(payload: AdminSettingsUpdateRequest, _: None = Depends(_require_admin_token)) -> dict[str, Any]:
+def admin_update_settings(payload: AdminSettingsUpdateRequest, _: None = Depends(_require_platform_access)) -> dict[str, Any]:
     from backend.admin_settings_store import SETTINGS_STORE
 
     updates: dict[str, Any] = {}
@@ -963,7 +989,7 @@ def admin_update_settings(payload: AdminSettingsUpdateRequest, _: None = Depends
 
 
 @app.post("/admin/whatsapp/test-send")
-def admin_whatsapp_test_send(payload: WhatsAppTestSendRequest, _: None = Depends(_require_admin_token)) -> dict[str, Any]:
+def admin_whatsapp_test_send(payload: WhatsAppTestSendRequest, _: None = Depends(_require_platform_access)) -> dict[str, Any]:
     from backend.admin_settings_store import SETTINGS_STORE
 
     settings = SETTINGS_STORE.get_non_secret_settings()

@@ -1,8 +1,6 @@
 import type { Metadata } from "next";
-import Script from "next/script";
 
 import { InternalHeader } from "@/components/internal-header";
-import { THEME_STORAGE_KEY } from "@/components/settings-provider";
 
 import { Providers } from "./providers";
 import "../styles/globals.css";
@@ -16,19 +14,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        <Script id="datasoko-theme-init" strategy="beforeInteractive">
-          {`(() => {
-            try {
-              const stored = localStorage.getItem("${THEME_STORAGE_KEY}");
-              const pref = stored === "dark" || stored === "light" || stored === "system" ? stored : "system";
-              const resolved = pref === "system"
-                ? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
-                : pref;
-              document.documentElement.setAttribute("data-theme", resolved);
-              document.documentElement.style.colorScheme = resolved;
-            } catch (_) {}
-          })();`}
-        </Script>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(()=>{try{var s=localStorage.getItem("datasoko_theme");var p=s==="dark"||s==="light"||s==="system"?s:"system";var r=p==="system"?(window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"):p;document.documentElement.setAttribute("data-theme",r);document.documentElement.style.colorScheme=r;}catch(_){}})();`,
+          }}
+        />
       </head>
       <body suppressHydrationWarning>
         <Providers>

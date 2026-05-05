@@ -82,7 +82,7 @@ export default function OverviewPage() {
       setOnboardingChecked(true);
       return () => { mounted = false; };
     }
-    getBilling(user.organization_id)
+    getBilling(token ?? "", user.organization_id)
       .then(() => { if (mounted) setOnboardingChecked(true); })
       .catch((err) => {
         if (!mounted) return;
@@ -93,29 +93,40 @@ export default function OverviewPage() {
         setOnboardingChecked(true);
       });
     return () => { mounted = false; };
-  }, [isReady, isAuthenticated, user, router]);
+  }, [isReady, isAuthenticated, user, token, router]);
 
   const load = useCallback(async () => {
     if (!token) return;
 
     setStatusState({ loading: true, data: null, error: null });
-    setBillingState({ loading: true, data: null, error: null });
-    setBizState({ loading: true, data: null, error: null });
+
+    // Billing and businesses require an org context — skip in Platform Mode
+    // (super_admin with no org selected) to avoid backend 400 errors.
+    const hasOrgContext = Boolean(organizationId);
+    if (hasOrgContext) {
+      setBillingState({ loading: true, data: null, error: null });
+      setBizState({ loading: true, data: null, error: null });
+    }
 
     try {
-      const [statusData, billingData, bizData] = await Promise.all([
-        getAdminStatus(token),
-        getBilling(token, organizationId),
-        getBusinesses(token, organizationId),
-      ]);
+      const statusData = await getAdminStatus(token);
       setStatusState({ loading: false, data: statusData, error: null });
-      setBillingState({ loading: false, data: billingData, error: null });
-      setBizState({ loading: false, data: bizData, error: null });
+
+      if (hasOrgContext) {
+        const [billingData, bizData] = await Promise.all([
+          getBilling(token, organizationId),
+          getBusinesses(token, organizationId),
+        ]);
+        setBillingState({ loading: false, data: billingData, error: null });
+        setBizState({ loading: false, data: bizData, error: null });
+      }
     } catch (err) {
       const msg = isApiError(err) ? err.message : "Failed to load dashboard data.";
       setStatusState((prev) => prev.data ? prev : { loading: false, data: null, error: msg });
-      setBillingState((prev) => prev.data ? prev : { loading: false, data: null, error: msg });
-      setBizState((prev) => prev.data ? prev : { loading: false, data: null, error: msg });
+      if (hasOrgContext) {
+        setBillingState((prev) => prev.data ? prev : { loading: false, data: null, error: msg });
+        setBizState((prev) => prev.data ? prev : { loading: false, data: null, error: msg });
+      }
     }
   }, [token, organizationId]);
 
