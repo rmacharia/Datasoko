@@ -199,3 +199,42 @@ def resolve_business_id(user: AuthUser, requested: str | None) -> str:
             return user.business_id
         raise HTTPException(status_code=403, detail="No business assigned to this user.")
     return requested or "biz_001"
+
+
+@dataclass
+class RequestContext:
+    user: AuthUser
+    organization_id: str | None   # effective org (from JWT or X-Organization-Id header for super_admin)
+    business_id: str | None       # effective business (from JWT or X-Business-Id header for super_admin)
+
+
+def get_request_context(
+    user: AuthUser = Depends(get_current_user),
+    x_organization_id: str | None = Header(default=None, alias="X-Organization-Id"),
+    x_business_id: str | None = Header(default=None, alias="X-Business-Id"),
+) -> RequestContext:
+    if user.role == ROLE_SUPER_ADMIN:
+        return RequestContext(
+            user=user,
+            organization_id=x_organization_id,
+            business_id=x_business_id,
+        )
+    return RequestContext(
+        user=user,
+        organization_id=user.organization_id,
+        business_id=user.business_id,
+    )
+
+
+def require_tenant_or_platform(
+    ctx: RequestContext = Depends(get_request_context),
+) -> RequestContext:
+    if ctx.user.role == ROLE_SUPER_ADMIN and not ctx.organization_id:
+        raise HTTPException(
+            status_code=403,
+            detail="No organization context selected. Select an org before accessing tenant routes.",
+        )
+    allowed = {ROLE_SUPER_ADMIN, ROLE_ORG_ADMIN, ROLE_SME_USER}
+    if ctx.user.role not in allowed:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    return ctx

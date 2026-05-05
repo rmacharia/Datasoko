@@ -6,7 +6,14 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 
-from backend.auth import AuthUser, get_current_user, is_sme_user, require_tenant_user
+from backend.auth import (
+    AuthUser,
+    RequestContext,
+    get_current_user,
+    is_sme_user,
+    require_tenant_or_platform,
+    require_tenant_user,
+)
 from backend.db.connection import get_connection
 
 logger = logging.getLogger(__name__)
@@ -18,6 +25,12 @@ def _tenant_org(user: AuthUser) -> str:
     if not user.organization_id:
         raise HTTPException(status_code=400, detail="organization_id missing from token")
     return user.organization_id
+
+
+def _ctx_org(ctx: RequestContext) -> str:
+    if not ctx.organization_id:
+        raise HTTPException(status_code=400, detail="organization_id missing from context")
+    return ctx.organization_id
 
 
 # Default per-message cost used when the provider doesn't report one.
@@ -92,11 +105,11 @@ LIMIT 30
 @router.get("/metrics")
 def get_analytics_metrics(
     business_id: str = "biz_001",
-    user: AuthUser = Depends(require_tenant_user),
+    ctx: RequestContext = Depends(require_tenant_or_platform),
 ) -> dict[str, Any]:
-    organization_id = _tenant_org(user)
-    if is_sme_user(user) and user.business_id:
-        business_id = user.business_id
+    organization_id = _ctx_org(ctx)
+    if is_sme_user(ctx.user) and ctx.business_id:
+        business_id = ctx.business_id
     connection = get_connection()
     try:
         with connection.cursor() as cur:
@@ -200,11 +213,11 @@ def _enrich_expenses(
 @router.get("/uploads")
 def get_analytics_uploads(
     business_id: str = "biz_001",
-    user: AuthUser = Depends(require_tenant_user),
+    ctx: RequestContext = Depends(require_tenant_or_platform),
 ) -> list[dict[str, Any]]:
-    organization_id = _tenant_org(user)
-    if is_sme_user(user) and user.business_id:
-        business_id = user.business_id
+    organization_id = _ctx_org(ctx)
+    if is_sme_user(ctx.user) and ctx.business_id:
+        business_id = ctx.business_id
     connection = get_connection()
     try:
         with connection.cursor() as cur:
@@ -238,11 +251,11 @@ def get_analytics_uploads(
 @router.get("/whatsapp")
 def get_analytics_whatsapp(
     business_id: str = "biz_001",
-    user: AuthUser = Depends(require_tenant_user),
+    ctx: RequestContext = Depends(require_tenant_or_platform),
 ) -> dict[str, Any]:
-    organization_id = _tenant_org(user)
-    if is_sme_user(user) and user.business_id:
-        business_id = user.business_id
+    organization_id = _ctx_org(ctx)
+    if is_sme_user(ctx.user) and ctx.business_id:
+        business_id = ctx.business_id
     connection = get_connection()
     try:
         with connection.cursor() as cur:
@@ -278,11 +291,11 @@ def get_analytics_whatsapp(
 @router.get("/activity")
 def get_analytics_activity(
     business_id: str = "biz_001",
-    user: AuthUser = Depends(require_tenant_user),
+    ctx: RequestContext = Depends(require_tenant_or_platform),
 ) -> list[dict[str, Any]]:
-    organization_id = _tenant_org(user)
-    if is_sme_user(user) and user.business_id:
-        business_id = user.business_id
+    organization_id = _ctx_org(ctx)
+    if is_sme_user(ctx.user) and ctx.business_id:
+        business_id = ctx.business_id
     connection = get_connection()
     try:
         with connection.cursor() as cur:
@@ -347,9 +360,9 @@ def log_activity(
 
 @router.get("/costs")
 def get_analytics_costs(
-    user: AuthUser = Depends(require_tenant_user),
+    ctx: RequestContext = Depends(require_tenant_or_platform),
 ) -> dict[str, Any]:
-    organization_id = _tenant_org(user)
+    organization_id = _ctx_org(ctx)
     connection = get_connection()
     try:
         with connection.cursor() as cur:
