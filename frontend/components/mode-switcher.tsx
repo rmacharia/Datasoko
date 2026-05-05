@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { useOrg } from "@/components/org-provider";
-import { getPlatformBusinesses, getPlatformOrganizations, isApiError } from "@/lib/api";
+import { getPlatformBusinesses, getPlatformOrganizations } from "@/lib/api";
 import type { PlatformBusiness, PlatformOrganization } from "@/lib/api";
 import { Select } from "@/components/ui/select";
 

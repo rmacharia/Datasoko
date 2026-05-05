@@ -86,7 +86,7 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
         window.localStorage.removeItem("datasoko_context");
       }
     }
-  }, [user?.role, selectedOrgId, selectedBusinessId]);
+  }, [user, selectedOrgId, selectedBusinessId]);
 
   const value = useMemo<OrgContextValue>(
     () => ({

@@ -72,7 +72,7 @@ type AddSmeForm = z.infer<typeof addSmeSchema>;
 
 export default function SettingsPage() {
   const router = useRouter();
-  const { token, logout } = useAuth();
+  const { token } = useAuth();
   const { organizationId, activeBusinessId, setActiveBusinessId } = useOrg();
   const { theme, setTheme, enhancedMode, setEnhancedMode } = useSettings();
   const { pushToast } = useToast();
@@ -145,8 +145,7 @@ export default function SettingsPage() {
       .catch((requestError) => {
         if (!mounted) return;
         if (isApiError(requestError) && requestError.status === 401) {
-          logout();
-          router.replace("/login");
+          setError("Session expired. Please log in again.");
           return;
         }
         const message = isApiError(requestError) ? requestError.message : "Failed to load settings.";
@@ -159,7 +158,7 @@ export default function SettingsPage() {
     return () => {
       mounted = false;
     };
-  }, [token, logout, router, settingsForm]);
+  }, [token, router, settingsForm]);
 
   useEffect(() => {
     if (!token) return;
@@ -246,11 +245,6 @@ export default function SettingsPage() {
       settingsForm.reset(toSettingsFormDefaults(updated));
       pushToast("Settings saved.", "success");
     } catch (requestError) {
-      if (isApiError(requestError) && requestError.status === 401) {
-        logout();
-        router.replace("/login");
-        return;
-      }
       const message = isApiError(requestError) ? requestError.message : "Failed to save settings.";
       setError(message);
       pushToast(message, "danger");
@@ -285,11 +279,6 @@ export default function SettingsPage() {
         pushToast(`Test send status: ${result.status}`, result.status === "sent" ? "success" : "warning");
       }
     } catch (requestError) {
-      if (isApiError(requestError) && requestError.status === 401) {
-        logout();
-        router.replace("/login");
-        return;
-      }
       const message = isApiError(requestError) ? requestError.message : "Failed to send WhatsApp test.";
       setTestStatus("error");
       setTestError(message);
