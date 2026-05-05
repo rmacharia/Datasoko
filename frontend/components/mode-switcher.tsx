@@ -5,6 +5,7 @@ import { useAuth } from "@/components/auth-provider";
 import { useOrg } from "@/components/org-provider";
 import { getPlatformBusinesses, getPlatformOrganizations, isApiError } from "@/lib/api";
 import type { PlatformBusiness, PlatformOrganization } from "@/lib/api";
+import { Select } from "@/components/ui/select";
 
 export function ModeSwitcher() {
   const { token, user } = useAuth();
@@ -103,11 +104,11 @@ export function ModeSwitcher() {
         )}
 
         {/* Org dropdown */}
-        <select
+        <Select
           value={selectedOrgId ?? ""}
           onChange={(e) => setSelectedOrg(e.target.value || null)}
           aria-label="Select organization"
-          className="rounded-md border border-[var(--border)] bg-[rgba(10,19,33,0.8)] px-2 py-1 text-xs text-[var(--text)]"
+          className="py-1 text-xs"
         >
           <option value="">— Select Org —</option>
           {orgs.map((o) => (
@@ -115,15 +116,15 @@ export function ModeSwitcher() {
               {o.name ?? o.id}
             </option>
           ))}
-        </select>
+        </Select>
 
         {/* SME dropdown — only when org selected */}
         {selectedOrgId ? (
-          <select
+          <Select
             value={selectedBusinessId ?? ""}
             onChange={(e) => setSelectedBusiness(e.target.value || null)}
             aria-label="Select SME"
-            className="rounded-md border border-[var(--border)] bg-[rgba(10,19,33,0.8)] px-2 py-1 text-xs text-[var(--text)]"
+            className="py-1 text-xs"
           >
             <option value="">— Select SME —</option>
             {businesses.map((b) => (
@@ -131,7 +132,7 @@ export function ModeSwitcher() {
                 {b.name ?? b.id}
               </option>
             ))}
-          </select>
+          </Select>
         ) : null}
 
         {/* Viewing as / Exit — only in tenant mode */}
