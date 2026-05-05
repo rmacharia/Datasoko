@@ -8,7 +8,11 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from backend.auth import AuthUser, get_current_user
+from backend.auth import (
+    AuthUser,
+    require_org_admin_only,
+    require_tenant_user,
+)
 from backend.db.connection import get_connection
 
 logger = logging.getLogger(__name__)
@@ -17,7 +21,6 @@ router = APIRouter(prefix="/schedules", tags=["schedules"])
 
 
 class CreateScheduleRequest(BaseModel):
-    organization_id: str = Field(default="default_org", min_length=1)
     business_id: str | None = None
     frequency: str = Field(min_length=1)
     time_of_day: str = Field(min_length=5, max_length=5)
@@ -39,10 +42,16 @@ class UpdateScheduleRequest(BaseModel):
     is_active: bool | None = None
 
 
+def _require_org(user: AuthUser) -> str:
+    if not user.organization_id:
+        raise HTTPException(status_code=400, detail="organization_id missing from token")
+    return user.organization_id
+
+
 @router.post("")
 def create_schedule(
     payload: CreateScheduleRequest,
-    user: AuthUser = Depends(get_current_user),
+    user: AuthUser = Depends(require_org_admin_only),
 ) -> dict[str, Any]:
     if payload.frequency not in ("daily", "weekly", "monthly"):
         raise HTTPException(status_code=400, detail="frequency must be daily, weekly, or monthly")
@@ -51,7 +60,7 @@ def create_schedule(
     if payload.frequency == "monthly" and payload.day_of_month is None:
         raise HTTPException(status_code=400, detail="day_of_month required for monthly schedules")
 
-    payload.organization_id = user.organization_id
+    organization_id = _require_org(user)
     schedule_id = uuid4().hex
     parsed_time = time.fromisoformat(payload.time_of_day)
 
@@ -65,7 +74,7 @@ def create_schedule(
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """, (
                 schedule_id,
-                payload.organization_id,
+                organization_id,
                 payload.business_id,
                 payload.frequency,
                 parsed_time,
@@ -89,13 +98,13 @@ def create_schedule(
         event_type="schedule",
         message=f"Schedule created: {payload.frequency} at {payload.time_of_day}",
         status="success",
-        organization_id=payload.organization_id,
+        organization_id=organization_id,
         metadata={"schedule_id": schedule_id},
     )
 
     return {
         "id": schedule_id,
-        "organization_id": payload.organization_id,
+        "organization_id": organization_id,
         "business_id": payload.business_id,
         "frequency": payload.frequency,
         "time_of_day": payload.time_of_day,
@@ -105,15 +114,17 @@ def create_schedule(
         "end_date": payload.end_date.isoformat() if payload.end_date else None,
         "send_whatsapp": payload.send_whatsapp,
         "is_active": True,
+        "last_run_at": None,
+        "last_status": None,
+        "next_run_at": None,
     }
 
 
 @router.get("")
 def list_schedules(
-    organization_id: str = "default_org",
-    user: AuthUser = Depends(get_current_user),
+    user: AuthUser = Depends(require_tenant_user),
 ) -> list[dict[str, Any]]:
-    organization_id = user.organization_id
+    organization_id = _require_org(user)
     conn = get_connection()
     try:
         with conn.cursor() as cur:
@@ -125,7 +136,8 @@ def list_schedules(
             cur.execute("""
                 SELECT id, organization_id, business_id, frequency,
                        time_of_day, day_of_week, day_of_month,
-                       start_date, end_date, send_whatsapp, is_active, created_at
+                       start_date, end_date, send_whatsapp, is_active, created_at,
+                       last_run_at, last_status, next_run_at
                 FROM report_schedules
                 WHERE organization_id = %s
                 ORDER BY created_at DESC
@@ -146,6 +158,9 @@ def list_schedules(
                 "send_whatsapp": row[9],
                 "is_active": row[10],
                 "created_at": row[11].isoformat() if hasattr(row[11], "isoformat") else str(row[11]),
+                "last_run_at": row[12].isoformat() if row[12] and hasattr(row[12], "isoformat") else None,
+                "last_status": row[13],
+                "next_run_at": row[14].isoformat() if row[14] and hasattr(row[14], "isoformat") else None,
             }
             for row in rows
         ]
@@ -162,8 +177,10 @@ def list_schedules(
 def update_schedule(
     schedule_id: str,
     payload: UpdateScheduleRequest,
-    user: AuthUser = Depends(get_current_user),
+    user: AuthUser = Depends(require_org_admin_only),
 ) -> dict[str, Any]:
+    organization_id = _require_org(user)
+
     updates: list[str] = []
     values: list[Any] = []
 
@@ -196,12 +213,13 @@ def update_schedule(
         raise HTTPException(status_code=400, detail="No fields to update")
 
     values.append(schedule_id)
+    values.append(organization_id)
 
     conn = get_connection()
     try:
         with conn.cursor() as cur:
             cur.execute(
-                f"UPDATE report_schedules SET {', '.join(updates)} WHERE id = %s",
+                f"UPDATE report_schedules SET {', '.join(updates)} WHERE id = %s AND organization_id = %s",
                 values,
             )
             if cur.rowcount == 0:
@@ -222,12 +240,16 @@ def update_schedule(
 @router.delete("/{schedule_id}")
 def delete_schedule(
     schedule_id: str,
-    user: AuthUser = Depends(get_current_user),
+    user: AuthUser = Depends(require_org_admin_only),
 ) -> dict[str, Any]:
+    organization_id = _require_org(user)
     conn = get_connection()
     try:
         with conn.cursor() as cur:
-            cur.execute("DELETE FROM report_schedules WHERE id = %s", (schedule_id,))
+            cur.execute(
+                "DELETE FROM report_schedules WHERE id = %s AND organization_id = %s",
+                (schedule_id, organization_id),
+            )
             if cur.rowcount == 0:
                 raise HTTPException(status_code=404, detail="Schedule not found")
         conn.commit()

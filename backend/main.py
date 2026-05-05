@@ -51,6 +51,7 @@ from backend.routes.businesses import router as businesses_router
 from backend.routes.billing import router as billing_router
 from backend.routes.analytics import router as analytics_router
 from backend.routes.schedules import router as schedules_router
+from backend.routes.admin_platform import router as admin_platform_router
 
 app.include_router(auth_router)
 app.include_router(users_router)
@@ -59,6 +60,7 @@ app.include_router(businesses_router)
 app.include_router(billing_router)
 app.include_router(analytics_router)
 app.include_router(schedules_router)
+app.include_router(admin_platform_router)
 
 
 @app.on_event("startup")

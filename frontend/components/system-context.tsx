@@ -3,7 +3,7 @@ import { motion, useReducedMotion } from "framer-motion";
 type Props = {
   title: string;
   subtitle: string;
-  businessId: string;
+  businessId: string | null;
   timezone?: string;
   currency?: string;
 };
@@ -26,7 +26,7 @@ export function SystemContext({ title, subtitle, businessId, timezone = "Africa/
         <dl className="grid grid-cols-3 gap-2 text-xs">
           <div className="rounded-md border border-[var(--border)] bg-[rgba(10,19,33,0.85)] px-3 py-2">
             <dt className="muted">Business</dt>
-            <dd className="font-semibold">{businessId}</dd>
+            <dd className="font-semibold">{businessId ?? "—"}</dd>
           </div>
           <div className="rounded-md border border-[var(--border)] bg-[rgba(10,19,33,0.85)] px-3 py-2">
             <dt className="muted">Timezone</dt>

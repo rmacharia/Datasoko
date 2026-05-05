@@ -3,9 +3,15 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from backend.auth import (
+    AuthUser,
+    is_org_admin,
+    is_super_admin,
+    require_org_admin_or_platform,
+)
 from backend.db.connection import get_connection
 
 router = APIRouter()
@@ -30,7 +36,7 @@ VALUES (%s, %s, %s, %s)
 
 
 class OnboardRequest(BaseModel):
-    organization_id: str = Field(min_length=1)
+    organization_id: str | None = Field(default=None, min_length=1)
     name: str = Field(min_length=1)
     plan: str = Field(min_length=1)
 
@@ -69,12 +75,29 @@ def _do_onboard(*, connection: Any, organization_id: str, name: str, plan: str) 
 
 
 @router.post("/onboard", status_code=201)
-def onboard(payload: OnboardRequest) -> dict[str, Any]:
+def onboard(
+    payload: OnboardRequest,
+    actor: AuthUser = Depends(require_org_admin_or_platform),
+) -> dict[str, Any]:
+    # Tenant admins onboard their own org; super_admins may onboard any org
+    # (but typically use /admin/organizations instead).
+    if is_org_admin(actor):
+        if payload.organization_id and payload.organization_id != actor.organization_id:
+            raise HTTPException(status_code=403, detail="Cannot onboard another organization")
+        organization_id = actor.organization_id
+    else:
+        if not payload.organization_id:
+            raise HTTPException(status_code=400, detail="organization_id is required")
+        organization_id = payload.organization_id
+
+    if not organization_id:
+        raise HTTPException(status_code=400, detail="organization_id could not be resolved from token")
+
     connection = get_connection()
     try:
         return _do_onboard(
             connection=connection,
-            organization_id=payload.organization_id,
+            organization_id=organization_id,
             name=payload.name,
             plan=payload.plan,
         )

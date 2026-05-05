@@ -24,7 +24,7 @@ import {
 const createUserSchema = z.object({
   email: z.string().email("Enter a valid email."),
   password: z.string().min(6, "Min 6 characters."),
-  role: z.enum(["admin", "sme"]),
+  role: z.enum(["admin", "sme_user"]),
   business_id: z.string().optional(),
 });
 
@@ -40,7 +40,7 @@ export default function UsersPage() {
 
   const form = useForm<CreateUserForm>({
     resolver: zodResolver(createUserSchema),
-    defaultValues: { email: "", password: "", role: "sme", business_id: "" },
+    defaultValues: { email: "", password: "", role: "sme_user", business_id: "" },
   });
 
   const watchRole = form.watch("role");
@@ -64,7 +64,8 @@ export default function UsersPage() {
         email: values.email,
         password: values.password,
         role: values.role,
-        business_id: values.role === "sme" ? values.business_id?.trim() || undefined : undefined,
+        organization_id: user?.organization_id ?? undefined,
+        business_id: values.role === "sme_user" ? values.business_id?.trim() || undefined : undefined,
       });
       setUsers((prev) => [created, ...prev]);
       form.reset();
@@ -93,7 +94,7 @@ export default function UsersPage() {
     }
   };
 
-  if (user?.role !== "admin") {
+  if (user?.role !== "admin" && user?.role !== "super_admin") {
     return (
       <AuthGuard>
         <main className="mx-auto max-w-6xl p-4 md:p-6">
@@ -143,11 +144,11 @@ export default function UsersPage() {
                 className="mt-1 w-full rounded-md border border-[var(--border)] bg-[rgba(11,21,37,0.9)] px-3 py-2 text-sm"
               >
                 <option value="admin">Admin</option>
-                <option value="sme">SME</option>
+                <option value="sme_user">SME User</option>
               </select>
             </label>
 
-            {watchRole === "sme" ? (
+            {watchRole === "sme_user" ? (
               <label className="text-sm font-medium">
                 Business ID <span className="text-[var(--danger)]">*</span>
                 <Input {...form.register("business_id")} placeholder="biz_001" className="mt-1" />
@@ -187,7 +188,7 @@ export default function UsersPage() {
                     <tr key={u.id} className="border-b border-[var(--border)] last:border-0 hover:bg-[rgba(79,121,199,0.07)]">
                       <td className="px-4 py-2">{u.email}</td>
                       <td className="px-4 py-2">
-                        <span className={`badge ${u.role === "admin" ? "badge-ok" : "badge-warn"}`}>
+                        <span className={`badge ${u.role === "super_admin" || u.role === "admin" ? "badge-ok" : "badge-warn"}`}>
                           {u.role}
                         </span>
                       </td>

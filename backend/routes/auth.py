@@ -7,7 +7,16 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from backend.auth import AuthUser, get_current_user, hash_password, issue_token, verify_password
+from backend.auth import (
+    ROLE_ORG_ADMIN,
+    ROLE_SME_USER,
+    ROLE_SUPER_ADMIN,
+    AuthUser,
+    get_current_user,
+    hash_password,
+    issue_token,
+    verify_password,
+)
 from backend.db.connection import get_connection
 
 logger = logging.getLogger(__name__)
@@ -18,13 +27,16 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 class BootstrapRequest(BaseModel):
     email: str = Field(min_length=3)
     password: str = Field(min_length=6)
-    organization_id: str = Field(default="default_org", min_length=1)
+    # organization_id is accepted for backwards compatibility with older
+    # frontends but is ignored — bootstrap always creates a platform
+    # super_admin with no tenant scope.
+    organization_id: str | None = None
 
 
 class RegisterRequest(BaseModel):
     email: str = Field(min_length=3)
     password: str = Field(min_length=6)
-    organization_id: str = Field(default="default_org", min_length=1)
+    organization_id: str | None = None
     role: str = Field(min_length=1)
     business_id: str | None = None
 
@@ -82,8 +94,8 @@ def bootstrap(payload: BootstrapRequest) -> dict[str, Any]:
         with conn.cursor() as cur:
             cur.execute("""
                 INSERT INTO users (id, email, password_hash, organization_id, role, business_id)
-                VALUES (%s, %s, %s, %s, 'admin', NULL)
-            """, (user_id, payload.email, pw_hash, payload.organization_id))
+                VALUES (%s, %s, %s, NULL, %s, NULL)
+            """, (user_id, payload.email, pw_hash, ROLE_SUPER_ADMIN))
         conn.commit()
     except Exception as exc:
         conn.rollback()
@@ -96,16 +108,16 @@ def bootstrap(payload: BootstrapRequest) -> dict[str, Any]:
     log_activity(
         business_id="system",
         event_type="bootstrap",
-        message=f"System bootstrapped by {payload.email}",
+        message=f"Platform bootstrapped by {payload.email}",
         status="success",
-        organization_id=payload.organization_id,
+        organization_id="system",
     )
 
     user = AuthUser(
         id=user_id,
         email=payload.email,
-        organization_id=payload.organization_id,
-        role="admin",
+        organization_id=None,
+        role=ROLE_SUPER_ADMIN,
         business_id=None,
     )
     token = issue_token(user)
@@ -125,10 +137,17 @@ def bootstrap(payload: BootstrapRequest) -> dict[str, Any]:
 
 @router.post("/register")
 def register(payload: RegisterRequest) -> dict[str, Any]:
-    if payload.role not in ("admin", "sme"):
-        raise HTTPException(status_code=400, detail="role must be 'admin' or 'sme'")
-    if payload.role == "sme" and not payload.business_id:
-        raise HTTPException(status_code=400, detail="business_id is required for SME users")
+    if payload.role not in (ROLE_SUPER_ADMIN, ROLE_ORG_ADMIN, ROLE_SME_USER):
+        raise HTTPException(
+            status_code=400,
+            detail=f"role must be one of '{ROLE_SUPER_ADMIN}', '{ROLE_ORG_ADMIN}', '{ROLE_SME_USER}'",
+        )
+    if payload.role == ROLE_SME_USER and not payload.business_id:
+        raise HTTPException(status_code=400, detail="business_id is required for sme_user")
+    if payload.role == ROLE_ORG_ADMIN and not payload.organization_id:
+        raise HTTPException(status_code=400, detail="organization_id is required for admin")
+
+    organization_id = None if payload.role == ROLE_SUPER_ADMIN else payload.organization_id
 
     user_id = uuid4().hex
     pw_hash = hash_password(payload.password)
@@ -142,7 +161,7 @@ def register(payload: RegisterRequest) -> dict[str, Any]:
             cur.execute("""
                 INSERT INTO users (id, email, password_hash, organization_id, role, business_id)
                 VALUES (%s, %s, %s, %s, %s, %s)
-            """, (user_id, payload.email, pw_hash, payload.organization_id, payload.role, payload.business_id))
+            """, (user_id, payload.email, pw_hash, organization_id, payload.role, payload.business_id))
         conn.commit()
     except HTTPException:
         raise
@@ -156,7 +175,7 @@ def register(payload: RegisterRequest) -> dict[str, Any]:
     user = AuthUser(
         id=user_id,
         email=payload.email,
-        organization_id=payload.organization_id,
+        organization_id=organization_id,
         role=payload.role,
         business_id=payload.business_id,
     )

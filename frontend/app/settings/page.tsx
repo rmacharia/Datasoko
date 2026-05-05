@@ -161,31 +161,34 @@ export default function SettingsPage() {
   }, [token, logout, router, settingsForm]);
 
   useEffect(() => {
+    if (!token) return;
     let mounted = true;
     setBillingLoading(true);
-    void getBilling(organizationId)
+    void getBilling(token, organizationId)
       .then((res) => { if (mounted) setBilling(res); })
       .catch((err) => { if (mounted) setBillingError(isApiError(err) ? err.message : "Failed to load billing."); })
       .finally(() => { if (mounted) setBillingLoading(false); });
     return () => { mounted = false; };
-  }, [organizationId]);
+  }, [token, organizationId]);
 
   useEffect(() => {
+    if (!token) return;
     let mounted = true;
     setBizLoading(true);
-    void getBusinesses(organizationId)
+    void getBusinesses(token, organizationId)
       .then((res) => { if (mounted) setBusinesses(res.businesses); })
       .catch((err) => { if (mounted) setBizError(isApiError(err) ? err.message : "Failed to load businesses."); })
       .finally(() => { if (mounted) setBizLoading(false); });
     return () => { mounted = false; };
-  }, [organizationId]);
+  }, [token, organizationId]);
 
   const onAddSme = addSmeForm.handleSubmit(async (values) => {
     setAddSmeError(null);
+    if (!token) return;
     try {
-      const created = await createBusiness({
+      const created = await createBusiness(token, {
         id: values.id.trim(),
-        organization_id: organizationId,
+        organization_id: organizationId ?? undefined,
         name: values.name?.trim() || undefined,
         whatsapp_phone: values.whatsapp_phone?.trim() || undefined,
       });

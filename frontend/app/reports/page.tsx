@@ -46,13 +46,13 @@ export default function ReportsPage() {
   } = useForm<ReportForm>({
     resolver: zodResolver(reportSchema),
     defaultValues: {
-      businessId: activeBusinessId,
+      businessId: activeBusinessId ?? "",
       weekStart: "",
       weekEnd: "",
     },
   });
 
-  const businessId = watch("businessId") || activeBusinessId;
+  const businessId = watch("businessId") || activeBusinessId || "";
 
   const onSubmit = async (values: ReportForm) => {
     if (!token) {
@@ -65,7 +65,7 @@ export default function ReportsPage() {
 
     try {
       const response = await getAdminReports(token, {
-        businessId: values.businessId?.trim() || activeBusinessId,
+        businessId: values.businessId?.trim() || activeBusinessId || "",
         weekStart: values.weekStart,
         weekEnd: values.weekEnd,
       });

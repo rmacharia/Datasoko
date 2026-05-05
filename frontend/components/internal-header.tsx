@@ -10,7 +10,14 @@ import { useSettings } from "@/components/settings-provider";
 import { Button } from "@/components/ui/button";
 import { getHealth, isApiError } from "@/lib/api";
 
-const adminLinks = [
+const superAdminLinks = [
+  { href: "/admin", label: "Admin" },
+  { href: "/admin/users", label: "Users" },
+  { href: "/admin/organizations", label: "Organizations" },
+  { href: "/admin/businesses", label: "SMEs" },
+];
+
+const orgAdminLinks = [
   { href: "/", label: "Overview" },
   { href: "/upload", label: "Upload" },
   { href: "/reports", label: "Reports" },
@@ -24,6 +31,12 @@ const smeLinks = [
   { href: "/upload", label: "Upload" },
   { href: "/reports", label: "Reports" },
 ];
+
+function linksForRole(role: string | undefined) {
+  if (role === "super_admin") return superAdminLinks;
+  if (role === "sme_user") return smeLinks;
+  return orgAdminLinks;
+}
 
 export function InternalHeader() {
   const { token, user, logout } = useAuth();
@@ -74,7 +87,7 @@ export function InternalHeader() {
         <div className="flex flex-wrap items-center gap-2">
           <span className="badge border border-[var(--border-bright)] bg-[rgba(55,181,255,0.12)] text-[var(--accent)]">DEV</span>
           <span className={reachabilityLabel.cls}>{reachabilityLabel.text}</span>
-          {token ? (
+          {token && user?.role !== "super_admin" ? (
             <>
               <span className="rounded-md border border-[var(--border)] bg-[rgba(10,19,33,0.85)] px-2.5 py-1 text-xs">
                 <span className="muted">Org:</span>{" "}
@@ -101,7 +114,7 @@ export function InternalHeader() {
 
         {token ? (
           <nav aria-label="Primary" className="flex flex-wrap items-center gap-2">
-            {(user?.role === "sme" ? smeLinks : adminLinks).map((item) => {
+            {linksForRole(user?.role).map((item) => {
               const isActive = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
               return (
                 <Link
@@ -119,7 +132,7 @@ export function InternalHeader() {
             {user ? (
               <span className="rounded-md border border-[var(--border)] bg-[rgba(10,19,33,0.85)] px-2.5 py-1 text-xs">
                 <span className="muted">{user.email}</span>{" "}
-                <span className={`font-semibold uppercase ${user.role === "admin" ? "text-[var(--accent)]" : "text-[var(--ok)]"}`}>
+                <span className={`font-semibold uppercase ${user.role === "super_admin" || user.role === "admin" ? "text-[var(--accent)]" : "text-[var(--ok)]"}`}>
                   {user.role}
                 </span>
               </span>

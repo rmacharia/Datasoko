@@ -51,7 +51,7 @@ export function ScheduleManager() {
       time_of_day: "18:00",
       day_of_week: 4,
       day_of_month: 1,
-      business_id: activeBusinessId,
+      business_id: activeBusinessId ?? "",
       all_businesses: false,
       start_date: new Date().toISOString().slice(0, 10),
       end_date: "",
@@ -66,7 +66,7 @@ export function ScheduleManager() {
     if (!token) return;
     let mounted = true;
     setLoading(true);
-    void getSchedules(token, organizationId)
+    void getSchedules(token)
       .then((res) => {
         if (mounted) setSchedules(res);
       })
@@ -85,8 +85,7 @@ export function ScheduleManager() {
 
     try {
       const result = await createSchedule(token, {
-        organization_id: organizationId,
-        business_id: values.all_businesses ? null : (values.business_id?.trim() || activeBusinessId),
+        business_id: values.all_businesses ? null : (values.business_id?.trim() || activeBusinessId || null),
         frequency: values.frequency,
         time_of_day: values.time_of_day,
         day_of_week: values.frequency === "weekly" ? values.day_of_week : undefined,
@@ -218,7 +217,7 @@ export function ScheduleManager() {
             {!allBusinesses ? (
               <Input
                 {...form.register("business_id")}
-                placeholder={activeBusinessId}
+                placeholder={activeBusinessId ?? ""}
                 className="text-xs"
               />
             ) : null}

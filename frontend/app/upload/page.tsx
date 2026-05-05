@@ -63,7 +63,7 @@ export default function UploadPage() {
   } = useForm<UploadForm>({
     resolver: zodResolver(uploadSchema),
     defaultValues: {
-      businessId: activeBusinessId,
+      businessId: activeBusinessId ?? "",
       weekStart: "",
       weekEnd: "",
       businessCurrency: "KES",
@@ -74,7 +74,7 @@ export default function UploadPage() {
 
   const excelName = watch("excelFile")?.name;
   const mpesaName = watch("mpesaFile")?.name;
-  const businessId = watch("businessId") || activeBusinessId;
+  const businessId = watch("businessId") || activeBusinessId || "";
 
   const actionableErrors = useMemo(() => {
     if (!result) return [];

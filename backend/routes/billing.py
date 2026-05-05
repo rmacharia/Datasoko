@@ -3,8 +3,13 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
+from backend.auth import (
+    AuthUser,
+    is_super_admin,
+    require_any_authenticated,
+)
 from backend.db.connection import get_connection
 
 router = APIRouter()
@@ -50,10 +55,27 @@ def _do_billing_current(*, connection: Any, organization_id: str) -> dict[str, A
 
 
 @router.get("/billing/current")
-def billing_current(organization_id: str = "default_org") -> dict[str, Any]:
+def billing_current(
+    organization_id: str | None = None,
+    actor: AuthUser = Depends(require_any_authenticated),
+) -> dict[str, Any]:
+    # Super admins query any org explicitly; tenant users are pinned to
+    # their own org regardless of the query string.
+    if is_super_admin(actor):
+        if not organization_id:
+            raise HTTPException(status_code=400, detail="organization_id is required for super_admin")
+        target_org = organization_id
+    else:
+        target_org = actor.organization_id
+        if organization_id and organization_id != target_org:
+            raise HTTPException(status_code=403, detail="Cross-organization access denied")
+
+    if not target_org:
+        raise HTTPException(status_code=400, detail="organization_id could not be resolved from token")
+
     connection = get_connection()
     try:
-        return _do_billing_current(connection=connection, organization_id=organization_id)
+        return _do_billing_current(connection=connection, organization_id=target_org)
     except HTTPException:
         raise
     except Exception as exc:

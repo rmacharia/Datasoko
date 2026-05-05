@@ -47,7 +47,13 @@ export default function LoginPage() {
       const response = await authLogin({ email: values.email, password: values.password });
       login(response.access_token, response.user);
       pushToast(`Welcome, ${response.user.email}`, "success");
-      router.replace(response.user.role === "sme" ? "/reports" : "/");
+      if (response.user.role === "super_admin") {
+        router.replace("/admin");
+      } else if (response.user.role === "sme_user") {
+        router.replace("/reports");
+      } else {
+        router.replace("/");
+      }
     } catch (err) {
       const msg = isApiError(err) ? err.message : "Login failed. Check your credentials.";
       setError(msg);

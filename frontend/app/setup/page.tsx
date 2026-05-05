@@ -16,7 +16,6 @@ const setupSchema = z.object({
   email: z.string().email("Enter a valid email address."),
   password: z.string().min(6, "Password must be at least 6 characters."),
   confirmPassword: z.string().min(6),
-  organization_id: z.string().min(1, "Organization ID is required."),
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Passwords do not match.",
   path: ["confirmPassword"],
@@ -37,7 +36,7 @@ export default function SetupPage() {
     formState: { errors, isSubmitting },
   } = useForm<SetupForm>({
     resolver: zodResolver(setupSchema),
-    defaultValues: { email: "", password: "", confirmPassword: "", organization_id: "default_org" },
+    defaultValues: { email: "", password: "", confirmPassword: "" },
   });
 
   useEffect(() => {
@@ -63,11 +62,10 @@ export default function SetupPage() {
       const response = await authBootstrap({
         email: values.email,
         password: values.password,
-        organization_id: values.organization_id,
       });
       login(response.access_token, response.user);
       pushToast("System initialized! Welcome, admin.", "success");
-      router.replace("/");
+      router.replace("/admin");
     } catch (err) {
       const msg = isApiError(err) ? err.message : "Bootstrap failed.";
       setError(msg);
@@ -96,22 +94,8 @@ export default function SetupPage() {
 
         <form className="space-y-4" onSubmit={handleSubmit(onSubmit)}>
           <div>
-            <label className="block text-sm font-medium" htmlFor="organization_id">
-              Organization ID
-            </label>
-            <Input
-              id="organization_id"
-              placeholder="my_company"
-              {...register("organization_id")}
-            />
-            {errors.organization_id ? (
-              <p className="mt-1 text-xs text-[var(--danger)]">{errors.organization_id.message}</p>
-            ) : null}
-          </div>
-
-          <div>
             <label className="block text-sm font-medium" htmlFor="email">
-              Admin Email
+              Platform Admin Email
             </label>
             <Input
               id="email"

@@ -6,12 +6,24 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 
-from backend.auth import AuthUser, get_current_user
+from backend.auth import AuthUser, get_current_user, is_sme_user, require_tenant_user
 from backend.db.connection import get_connection
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
+
+
+def _tenant_org(user: AuthUser) -> str:
+    if not user.organization_id:
+        raise HTTPException(status_code=400, detail="organization_id missing from token")
+    return user.organization_id
+
+
+# Default per-message cost used when the provider doesn't report one.
+# Kept tiny and non-zero so cost dashboards still show activity; override
+# by passing cost_usd explicitly to log_whatsapp_message.
+_DEFAULT_WHATSAPP_COST_USD = 0.005
 
 
 def _require_admin_token(authorization: str | None = Header(default=None, alias="Authorization")) -> None:
@@ -58,9 +70,10 @@ _WHATSAPP_STATS_SQL = """
 SELECT
     COUNT(*) AS total_sent,
     MAX(created_at) AS last_sent,
-    COUNT(*) FILTER (WHERE status = 'sent' OR status = 'delivered') AS success_count
+    COUNT(*) FILTER (WHERE status IN ('sent', 'delivered')) AS success_count
 FROM whatsapp_message_log
-WHERE business_id = %s
+WHERE organization_id = %s
+  AND business_id = %s
 """.strip()
 
 _ACTIVITY_SQL = """
@@ -78,12 +91,11 @@ LIMIT 30
 
 @router.get("/metrics")
 def get_analytics_metrics(
-    organization_id: str = "default_org",
     business_id: str = "biz_001",
-    user: AuthUser = Depends(get_current_user),
+    user: AuthUser = Depends(require_tenant_user),
 ) -> dict[str, Any]:
-    organization_id = user.organization_id
-    if user.role == "sme" and user.business_id:
+    organization_id = _tenant_org(user)
+    if is_sme_user(user) and user.business_id:
         business_id = user.business_id
     connection = get_connection()
     try:
@@ -187,12 +199,11 @@ def _enrich_expenses(
 
 @router.get("/uploads")
 def get_analytics_uploads(
-    organization_id: str = "default_org",
     business_id: str = "biz_001",
-    user: AuthUser = Depends(get_current_user),
+    user: AuthUser = Depends(require_tenant_user),
 ) -> list[dict[str, Any]]:
-    organization_id = user.organization_id
-    if user.role == "sme" and user.business_id:
+    organization_id = _tenant_org(user)
+    if is_sme_user(user) and user.business_id:
         business_id = user.business_id
     connection = get_connection()
     try:
@@ -226,12 +237,11 @@ def get_analytics_uploads(
 
 @router.get("/whatsapp")
 def get_analytics_whatsapp(
-    organization_id: str = "default_org",
     business_id: str = "biz_001",
-    user: AuthUser = Depends(get_current_user),
+    user: AuthUser = Depends(require_tenant_user),
 ) -> dict[str, Any]:
-    organization_id = user.organization_id
-    if user.role == "sme" and user.business_id:
+    organization_id = _tenant_org(user)
+    if is_sme_user(user) and user.business_id:
         business_id = user.business_id
     connection = get_connection()
     try:
@@ -243,7 +253,7 @@ def get_analytics_whatsapp(
             if cur.fetchone() is None:
                 return {"total_sent": 0, "last_sent": None, "success_rate": 0.0}
 
-            cur.execute(_WHATSAPP_STATS_SQL, (business_id,))
+            cur.execute(_WHATSAPP_STATS_SQL, (organization_id, business_id))
             row = cur.fetchone()
 
         total_sent = row[0] if row else 0
@@ -267,12 +277,11 @@ def get_analytics_whatsapp(
 
 @router.get("/activity")
 def get_analytics_activity(
-    organization_id: str = "default_org",
     business_id: str = "biz_001",
-    user: AuthUser = Depends(get_current_user),
+    user: AuthUser = Depends(require_tenant_user),
 ) -> list[dict[str, Any]]:
-    organization_id = user.organization_id
-    if user.role == "sme" and user.business_id:
+    organization_id = _tenant_org(user)
+    if is_sme_user(user) and user.business_id:
         business_id = user.business_id
     connection = get_connection()
     try:
@@ -309,7 +318,7 @@ def log_activity(
     event_type: str,
     message: str,
     status: str = "success",
-    organization_id: str = "default_org",
+    organization_id: str = "system",
     metadata: dict[str, Any] | None = None,
 ) -> None:
     """Insert an activity log entry. Best-effort — swallows errors."""
@@ -338,10 +347,9 @@ def log_activity(
 
 @router.get("/costs")
 def get_analytics_costs(
-    organization_id: str = "default_org",
-    user: AuthUser = Depends(get_current_user),
+    user: AuthUser = Depends(require_tenant_user),
 ) -> dict[str, Any]:
-    organization_id = user.organization_id
+    organization_id = _tenant_org(user)
     connection = get_connection()
     try:
         with connection.cursor() as cur:
@@ -405,9 +413,18 @@ def log_whatsapp_message(
     provider: str = "twilio",
     provider_sid: str | None = None,
     error_detail: str | None = None,
-    organization_id: str = "default_org",
+    organization_id: str = "system",
+    cost_usd: float | None = None,
 ) -> None:
-    """Insert a WhatsApp message log entry. Best-effort — swallows errors."""
+    """Insert a WhatsApp message log entry. Best-effort — swallows errors.
+
+    Every successful send is charged a default cost when the caller does
+    not supply one, so /analytics/costs and /analytics/whatsapp agree on
+    which messages were billable.
+    """
+    if cost_usd is None:
+        cost_usd = _DEFAULT_WHATSAPP_COST_USD if status in ("sent", "delivered") else 0.0
+
     try:
         connection = get_connection()
         try:
@@ -420,10 +437,10 @@ def log_whatsapp_message(
                 cur.execute(
                     """
                     INSERT INTO whatsapp_message_log
-                        (organization_id, business_id, phone, message_preview, status, provider, provider_sid, error_detail)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                        (organization_id, business_id, phone, message_preview, status, provider, provider_sid, error_detail, cost_usd)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
-                    (organization_id, business_id, phone, message_preview, status, provider, provider_sid, error_detail),
+                    (organization_id, business_id, phone, message_preview, status, provider, provider_sid, error_detail, cost_usd),
                 )
             connection.commit()
         finally:

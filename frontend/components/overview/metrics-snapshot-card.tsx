@@ -44,7 +44,7 @@ export function MetricsSnapshotCard() {
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    if (!token) return;
+    if (!token || !activeBusinessId) return;
     setLoading(true);
     setError(null);
     try {

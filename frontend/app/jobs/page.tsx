@@ -48,14 +48,14 @@ export default function JobsPage() {
   } = useForm<JobForm>({
     resolver: zodResolver(jobSchema),
     defaultValues: {
-      businessId: activeBusinessId,
+      businessId: activeBusinessId ?? "",
       weekStart: "",
       weekEnd: "",
       sendWhatsapp: true,
     },
   });
 
-  const businessId = watch("businessId") || activeBusinessId;
+  const businessId = watch("businessId") || activeBusinessId || "";
 
   useEffect(() => {
     return () => {
@@ -122,7 +122,7 @@ export default function JobsPage() {
 
     try {
       const response = await generateAdminReport(token, {
-        business_id: values.businessId?.trim() || activeBusinessId,
+        business_id: values.businessId?.trim() || activeBusinessId || undefined,
         week_start: values.weekStart,
         week_end: values.weekEnd,
         send_whatsapp: values.sendWhatsapp,

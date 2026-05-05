@@ -71,7 +71,17 @@ export default function OverviewPage() {
 
   useEffect(() => {
     if (!isReady || !isAuthenticated || !user) return;
+    // Super admins are platform-scoped and have no tenant — send them to
+    // the admin console and never run the tenant-onboarding check.
+    if (user.role === "super_admin") {
+      router.replace("/admin");
+      return;
+    }
     let mounted = true;
+    if (!user.organization_id) {
+      setOnboardingChecked(true);
+      return () => { mounted = false; };
+    }
     getBilling(user.organization_id)
       .then(() => { if (mounted) setOnboardingChecked(true); })
       .catch((err) => {
@@ -95,8 +105,8 @@ export default function OverviewPage() {
     try {
       const [statusData, billingData, bizData] = await Promise.all([
         getAdminStatus(token),
-        getBilling(organizationId),
-        getBusinesses(organizationId),
+        getBilling(token, organizationId),
+        getBusinesses(token, organizationId),
       ]);
       setStatusState({ loading: false, data: statusData, error: null });
       setBillingState({ loading: false, data: billingData, error: null });
@@ -112,7 +122,8 @@ export default function OverviewPage() {
   const loadAnalytics = useCallback(async () => {
     if (!token) return;
 
-    const params = { organizationId, businessId: activeBusinessId };
+    if (!activeBusinessId) return;
+    const params = { businessId: activeBusinessId };
 
     setAnalyticsMetrics({ loading: true, data: null, error: null });
     setAnalyticsUploads({ loading: true, data: null, error: null });
@@ -127,8 +138,8 @@ export default function OverviewPage() {
         getAnalyticsUploads(token, params),
         getAnalyticsWhatsApp(token, params),
         getAnalyticsActivity(token, params),
-        getAnalyticsCosts(token, { organizationId }),
-        getSchedules(token, organizationId),
+        getAnalyticsCosts(token),
+        getSchedules(token),
       ]);
       setAnalyticsMetrics({ loading: false, data: metrics, error: null });
       setAnalyticsUploads({ loading: false, data: uploads, error: null });
@@ -145,7 +156,7 @@ export default function OverviewPage() {
       setAnalyticsCosts((prev) => prev.data ? prev : { loading: false, data: null, error: msg });
       setSchedulesState((prev) => prev.data ? prev : { loading: false, data: null, error: msg });
     }
-  }, [token, organizationId, activeBusinessId]);
+  }, [token, activeBusinessId]);
 
   useEffect(() => {
     if (onboardingChecked) void load();

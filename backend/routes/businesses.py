@@ -2,9 +2,16 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from backend.auth import (
+    AuthUser,
+    is_org_admin,
+    is_super_admin,
+    require_any_authenticated,
+    require_org_admin_or_platform,
+)
 from backend.db.connection import get_connection
 
 router = APIRouter()
@@ -85,14 +92,28 @@ def _do_list_businesses(*, connection: Any, organization_id: str) -> dict[str, A
 
 
 @router.post("/businesses", status_code=201)
-def create_business(payload: CreateBusinessRequest) -> dict[str, Any]:
-    org_id = payload.organization_id or "default_org"
+def create_business(
+    payload: CreateBusinessRequest,
+    actor: AuthUser = Depends(require_org_admin_or_platform),
+) -> dict[str, Any]:
+    if is_org_admin(actor):
+        if payload.organization_id and payload.organization_id != actor.organization_id:
+            raise HTTPException(status_code=403, detail="Cannot create business in another organization")
+        target_org = actor.organization_id
+    else:
+        if not payload.organization_id:
+            raise HTTPException(status_code=400, detail="organization_id is required for super_admin")
+        target_org = payload.organization_id
+
+    if not target_org:
+        raise HTTPException(status_code=400, detail="organization_id could not be resolved from token")
+
     connection = get_connection()
     try:
         return _do_create_business(
             connection=connection,
             business_id=payload.id,
-            organization_id=org_id,
+            organization_id=target_org,
             name=payload.name,
             whatsapp_phone=payload.whatsapp_phone,
         )
@@ -106,10 +127,27 @@ def create_business(payload: CreateBusinessRequest) -> dict[str, Any]:
 
 
 @router.get("/businesses")
-def list_businesses(organization_id: str = "default_org") -> dict[str, Any]:
+def list_businesses(
+    organization_id: str | None = None,
+    actor: AuthUser = Depends(require_any_authenticated),
+) -> dict[str, Any]:
+    # Tenant users can only see their own org. Super admins may pass an
+    # explicit organization_id.
+    if is_super_admin(actor):
+        if not organization_id:
+            raise HTTPException(status_code=400, detail="organization_id is required for super_admin")
+        target_org = organization_id
+    else:
+        target_org = actor.organization_id
+        if organization_id and organization_id != target_org:
+            raise HTTPException(status_code=403, detail="Cross-organization access denied")
+
+    if not target_org:
+        raise HTTPException(status_code=400, detail="organization_id could not be resolved from token")
+
     connection = get_connection()
     try:
-        return _do_list_businesses(connection=connection, organization_id=organization_id)
+        return _do_list_businesses(connection=connection, organization_id=target_org)
     except HTTPException:
         raise
     except Exception as exc:

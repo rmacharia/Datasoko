@@ -12,11 +12,13 @@ export type HealthResponse = {
 
 // ── Auth types ─────────────────────────────────────────────────────────────
 
+export type UserRole = "super_admin" | "admin" | "sme_user";
+
 export type AuthUser = {
   id: string;
   email: string;
-  role: "admin" | "sme";
-  organization_id: string;
+  role: UserRole;
+  organization_id: string | null;
   business_id: string | null;
 };
 
@@ -47,21 +49,22 @@ export type AuthStatusResponse = {
 export type BootstrapRequest = {
   email: string;
   password: string;
-  organization_id: string;
+  organization_id?: string | null;
 };
 
 export type CreateUserRequest = {
   email: string;
   password: string;
-  role: string;
+  role: UserRole;
+  organization_id?: string | null;
   business_id?: string | null;
 };
 
 export type ManagedUser = {
   id: string;
   email: string;
-  role: "admin" | "sme";
-  organization_id?: string;
+  role: UserRole;
+  organization_id?: string | null;
   business_id: string | null;
   is_active: boolean;
   created_at?: string;
@@ -559,7 +562,7 @@ export function updateAdminSettings(token: string, payload: AdminSettingsUpdateR
 // ── Multi-tenancy types ──────────────────────────────────────────────────────
 
 export type OnboardRequest = {
-  organization_id: string;
+  organization_id?: string | null;
   name: string;
   plan: string;
 };
@@ -608,29 +611,44 @@ export type BillingResponse = {
   days_remaining: number;
 };
 
-export function onboard(payload: OnboardRequest): Promise<OnboardResponse> {
+export function onboard(token: string, payload: OnboardRequest): Promise<OnboardResponse> {
   return apiRequest<OnboardResponse>("/onboard", {
     method: "POST",
+    token,
     body: JSON.stringify(payload),
   });
 }
 
-export function getBusinesses(organizationId = "default_org"): Promise<BusinessesResponse> {
-  return apiRequest<BusinessesResponse>(`/businesses?organization_id=${encodeURIComponent(organizationId)}`, {
+export function getBusinesses(
+  token: string,
+  organizationId?: string | null,
+): Promise<BusinessesResponse> {
+  const query = organizationId ? `?organization_id=${encodeURIComponent(organizationId)}` : "";
+  return apiRequest<BusinessesResponse>(`/businesses${query}`, {
     method: "GET",
+    token,
   });
 }
 
-export function createBusiness(payload: CreateBusinessRequest): Promise<CreateBusinessResponse> {
+export function createBusiness(
+  token: string,
+  payload: CreateBusinessRequest,
+): Promise<CreateBusinessResponse> {
   return apiRequest<CreateBusinessResponse>("/businesses", {
     method: "POST",
+    token,
     body: JSON.stringify(payload),
   });
 }
 
-export function getBilling(organizationId = "default_org"): Promise<BillingResponse> {
-  return apiRequest<BillingResponse>(`/billing/current?organization_id=${encodeURIComponent(organizationId)}`, {
+export function getBilling(
+  token: string,
+  organizationId?: string | null,
+): Promise<BillingResponse> {
+  const query = organizationId ? `?organization_id=${encodeURIComponent(organizationId)}` : "";
+  return apiRequest<BillingResponse>(`/billing/current${query}`, {
     method: "GET",
+    token,
   });
 }
 
@@ -758,45 +776,33 @@ export function getWhatsAppStatus(token: string): Promise<WhatsAppStatusResponse
 
 export function getAnalyticsMetrics(
   token: string,
-  params: { organizationId: string; businessId: string },
+  params: { businessId: string },
 ): Promise<AnalyticsMetricsResponse> {
-  const query = new URLSearchParams({
-    organization_id: params.organizationId,
-    business_id: params.businessId,
-  });
+  const query = new URLSearchParams({ business_id: params.businessId });
   return apiRequest<AnalyticsMetricsResponse>(`/analytics/metrics?${query}`, { method: "GET", token });
 }
 
 export function getAnalyticsUploads(
   token: string,
-  params: { organizationId: string; businessId: string },
+  params: { businessId: string },
 ): Promise<AnalyticsUpload[]> {
-  const query = new URLSearchParams({
-    organization_id: params.organizationId,
-    business_id: params.businessId,
-  });
+  const query = new URLSearchParams({ business_id: params.businessId });
   return apiRequest<AnalyticsUpload[]>(`/analytics/uploads?${query}`, { method: "GET", token });
 }
 
 export function getAnalyticsWhatsApp(
   token: string,
-  params: { organizationId: string; businessId: string },
+  params: { businessId: string },
 ): Promise<AnalyticsWhatsAppStats> {
-  const query = new URLSearchParams({
-    organization_id: params.organizationId,
-    business_id: params.businessId,
-  });
+  const query = new URLSearchParams({ business_id: params.businessId });
   return apiRequest<AnalyticsWhatsAppStats>(`/analytics/whatsapp?${query}`, { method: "GET", token });
 }
 
 export function getAnalyticsActivity(
   token: string,
-  params: { organizationId: string; businessId: string },
+  params: { businessId: string },
 ): Promise<AnalyticsActivity[]> {
-  const query = new URLSearchParams({
-    organization_id: params.organizationId,
-    business_id: params.businessId,
-  });
+  const query = new URLSearchParams({ business_id: params.businessId });
   return apiRequest<AnalyticsActivity[]>(`/analytics/activity?${query}`, { method: "GET", token });
 }
 
@@ -809,12 +815,8 @@ export type AnalyticsCostsResponse = {
   last_7_days: { date: string; count: number; cost: number }[];
 };
 
-export function getAnalyticsCosts(
-  token: string,
-  params: { organizationId: string },
-): Promise<AnalyticsCostsResponse> {
-  const query = new URLSearchParams({ organization_id: params.organizationId });
-  return apiRequest<AnalyticsCostsResponse>(`/analytics/costs?${query}`, { method: "GET", token });
+export function getAnalyticsCosts(token: string): Promise<AnalyticsCostsResponse> {
+  return apiRequest<AnalyticsCostsResponse>("/analytics/costs", { method: "GET", token });
 }
 
 // ── Schedules ──────────────────────────────────────────────────────────────
@@ -832,10 +834,12 @@ export type Schedule = {
   send_whatsapp: boolean;
   is_active: boolean;
   created_at?: string;
+  last_run_at?: string | null;
+  last_status?: string | null;
+  next_run_at?: string | null;
 };
 
 export type CreateScheduleRequest = {
-  organization_id: string;
   business_id?: string | null;
   frequency: string;
   time_of_day: string;
@@ -846,12 +850,53 @@ export type CreateScheduleRequest = {
   send_whatsapp: boolean;
 };
 
-export function getSchedules(
+export type PlatformOrganization = {
+  id: string;
+  name: string | null;
+  created_at: string;
+  user_count: number;
+  business_count: number;
+  plan: string | null;
+  status: string | null;
+  expiry_date: string | null;
+};
+
+export type CreatePlatformOrganizationRequest = {
+  name: string;
+  organization_id?: string | null;
+  admin_email: string;
+  admin_password: string;
+};
+
+export type PlatformBusiness = {
+  id: string;
+  organization_id: string;
+  name: string | null;
+  whatsapp_phone: string | null;
+  created_at: string;
+};
+
+export function getPlatformOrganizations(token: string): Promise<PlatformOrganization[]> {
+  return apiRequest<PlatformOrganization[]>("/admin/organizations", { method: "GET", token });
+}
+
+export function createPlatformOrganization(
   token: string,
-  organizationId: string,
-): Promise<Schedule[]> {
-  const query = new URLSearchParams({ organization_id: organizationId });
-  return apiRequest<Schedule[]>(`/schedules?${query}`, { method: "GET", token });
+  payload: CreatePlatformOrganizationRequest,
+): Promise<{ organization_id: string; name: string; admin: { id: string; email: string; role: string } }> {
+  return apiRequest("/admin/organizations", {
+    method: "POST",
+    token,
+    body: JSON.stringify(payload),
+  });
+}
+
+export function getPlatformBusinesses(token: string): Promise<PlatformBusiness[]> {
+  return apiRequest<PlatformBusiness[]>("/admin/businesses", { method: "GET", token });
+}
+
+export function getSchedules(token: string): Promise<Schedule[]> {
+  return apiRequest<Schedule[]>("/schedules", { method: "GET", token });
 }
 
 export function createSchedule(

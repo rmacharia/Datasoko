@@ -2,8 +2,9 @@
 
 import { motion, useReducedMotion } from "framer-motion";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
+import { useAuth } from "@/components/auth-provider";
 import { useOrg } from "@/components/org-provider";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -12,6 +13,7 @@ import { isApiError, onboard } from "@/lib/api";
 
 export default function OnboardingPage() {
   const router = useRouter();
+  const { user, isReady, token } = useAuth();
   const { setOrganizationId } = useOrg();
   const reduce = useReducedMotion();
 
@@ -21,14 +23,29 @@ export default function OnboardingPage() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  useEffect(() => {
+    if (isReady && user?.role === "super_admin") {
+      router.replace("/admin");
+    }
+  }, [isReady, user, router]);
+
+  if (isReady && user?.role === "super_admin") {
+    return null;
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!orgId.trim() || !name.trim()) return;
 
     setError(null);
     setSubmitting(true);
+    if (!token) {
+      setError("Not authenticated. Please sign in again.");
+      setSubmitting(false);
+      return;
+    }
     try {
-      const result = await onboard({
+      const result = await onboard(token, {
         organization_id: orgId.trim(),
         name: name.trim(),
         plan,

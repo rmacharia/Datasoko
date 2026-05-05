@@ -10,21 +10,40 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from fastapi import Header, HTTPException
+from fastapi import Depends, Header, HTTPException
 
 logger = logging.getLogger(__name__)
 
 JWT_SECRET = os.getenv("JWT_SECRET", "").strip()
 JWT_EXPIRY_SECONDS = 3600
 
+# Role taxonomy
+ROLE_SUPER_ADMIN = "super_admin"
+ROLE_ORG_ADMIN = "admin"
+ROLE_SME_USER = "sme_user"
+
+ALL_ROLES = (ROLE_SUPER_ADMIN, ROLE_ORG_ADMIN, ROLE_SME_USER)
+
 
 @dataclass
 class AuthUser:
     id: str
     email: str
-    organization_id: str
+    organization_id: str | None
     role: str
     business_id: str | None
+
+
+def is_super_admin(user: AuthUser) -> bool:
+    return user.role == ROLE_SUPER_ADMIN
+
+
+def is_org_admin(user: AuthUser) -> bool:
+    return user.role == ROLE_ORG_ADMIN
+
+
+def is_sme_user(user: AuthUser) -> bool:
+    return user.role == ROLE_SME_USER
 
 
 def hash_password(password: str) -> str:
@@ -84,6 +103,16 @@ def decode_jwt(token: str) -> dict[str, Any] | None:
     return payload
 
 
+def _normalize_role(role: str | None) -> str:
+    # Accept legacy JWTs minted before the role split so tokens already in
+    # the wild keep working for their remaining lifetime.
+    if role == "admin":
+        return ROLE_ORG_ADMIN
+    if role == "sme":
+        return ROLE_SME_USER
+    return role or ""
+
+
 def issue_token(user: AuthUser) -> str:
     payload = {
         "user_id": user.id,
@@ -112,34 +141,60 @@ def get_current_user(authorization: str | None = Header(default=None, alias="Aut
         return AuthUser(
             id=payload["user_id"],
             email=payload.get("email", ""),
-            organization_id=payload["organization_id"],
-            role=payload["role"],
+            organization_id=payload.get("organization_id"),
+            role=_normalize_role(payload.get("role")),
             business_id=payload.get("business_id"),
         )
 
-    # Fallback: accept ADMIN_TOKEN for backward compatibility
+    # Fallback: accept ADMIN_TOKEN as a platform-level identity.
     admin_token = os.getenv("ADMIN_TOKEN", "").strip()
     if admin_token and hmac.compare_digest(token_str, admin_token):
         return AuthUser(
             id="system_admin",
             email="admin@system",
-            organization_id="default_org",
-            role="admin",
+            organization_id=None,
+            role=ROLE_SUPER_ADMIN,
             business_id=None,
         )
 
     raise HTTPException(status_code=401, detail="Invalid or expired token.")
 
 
+def require_role(*allowed_roles: str):
+    """FastAPI dependency factory that enforces role membership."""
+    allowed = set(allowed_roles)
+
+    def _checker(user: AuthUser = Depends(get_current_user)) -> AuthUser:
+        if user.role not in allowed:
+            raise HTTPException(status_code=403, detail="Forbidden")
+        return user
+
+    return _checker
+
+
+# Named guards — prefer these over inline require_role(...) at call sites
+# so the intent of each route is unmistakable.
+require_platform_admin = require_role(ROLE_SUPER_ADMIN)
+require_org_admin_only = require_role(ROLE_ORG_ADMIN)
+require_org_admin_or_platform = require_role(ROLE_SUPER_ADMIN, ROLE_ORG_ADMIN)
+require_tenant_user = require_role(ROLE_ORG_ADMIN, ROLE_SME_USER)
+require_any_authenticated = require_role(ROLE_SUPER_ADMIN, ROLE_ORG_ADMIN, ROLE_SME_USER)
+
+
 def enforce_business_access(user: AuthUser, business_id: str | None) -> None:
-    if user.role == "admin":
+    # Platform admins have cross-tenant visibility.
+    if is_super_admin(user):
         return
-    if user.role == "sme" and user.business_id and business_id != user.business_id:
+    # Org admins can reach any business within their own org — callers must
+    # pair this with an organization_id check when needed.
+    if is_org_admin(user):
+        return
+    if is_sme_user(user) and user.business_id and business_id != user.business_id:
         raise HTTPException(status_code=403, detail="Access denied: you can only access your assigned business.")
 
 
 def resolve_business_id(user: AuthUser, requested: str | None) -> str:
-    if user.role == "sme":
+    if is_sme_user(user):
         if user.business_id:
             return user.business_id
         raise HTTPException(status_code=403, detail="No business assigned to this user.")
