@@ -24,6 +24,7 @@ See [docs/architecture.md](docs/architecture.md) for the full system design.
 ```bash
 pip install -r requirements.txt
 export ADMIN_TOKEN=your-secret-token
+export JWT_SECRET=your-jwt-signing-secret
 export DATABASE_URL=postgresql://postgres:postgres@localhost:5432/datasoko
 uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
 ```
@@ -36,7 +37,7 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:3000/login` and enter your `ADMIN_TOKEN`.
+Open `http://localhost:3000/setup` for first-time setup, then sign in at `http://localhost:3000/login`.
 
 ## Testing
 
@@ -60,7 +61,9 @@ python -m unittest -q tests/test_multitenancy.py
 | Variable | Required | Purpose |
 |---|---|---|
 | `DATABASE_URL` | Yes | PostgreSQL connection string |
-| `ADMIN_TOKEN` | Yes | Bearer token for admin API routes |
+| `ADMIN_TOKEN` | Yes | Legacy/service bearer token for admin API routes |
+| `JWT_SECRET` | Yes | JWT signing secret; app fails closed if missing |
+| `ALLOW_BOOTSTRAP_ADMIN` | No | Allows first public `super_admin` registration only when `true` |
 | `BACKEND_CORS_ORIGINS` | No | Comma-separated CORS allowlist (default: `http://localhost:3000`) |
 | `SETTINGS_ENCRYPTION_KEY` | No | Key for encrypting stored secrets (falls back to `ADMIN_TOKEN`) |
 | `NEXT_PUBLIC_API_BASE_URL` | No | Frontend -> backend URL (default: `http://localhost:8000`) |

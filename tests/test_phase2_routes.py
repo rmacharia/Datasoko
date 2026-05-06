@@ -31,6 +31,16 @@ if "fastapi" not in sys.modules:
                 fn._route = _Route(path, ["GET"])
                 return fn
             return _d
+        def patch(self, path, *a, **kw):
+            def _d(fn):
+                fn._route = _Route(path, ["PATCH"])
+                return fn
+            return _d
+        def delete(self, path, *a, **kw):
+            def _d(fn):
+                fn._route = _Route(path, ["DELETE"])
+                return fn
+            return _d
 
     class _FastAPI:
         def __init__(self, *a, **kw):
@@ -48,6 +58,16 @@ if "fastapi" not in sys.modules:
         def put(self, path, *a, **kw):
             def _d(fn):
                 self.routes.append(_Route(path, ["PUT"]))
+                return fn
+            return _d
+        def patch(self, path, *a, **kw):
+            def _d(fn):
+                self.routes.append(_Route(path, ["PATCH"]))
+                return fn
+            return _d
+        def delete(self, path, *a, **kw):
+            def _d(fn):
+                self.routes.append(_Route(path, ["DELETE"]))
                 return fn
             return _d
         def add_middleware(self, *a, **kw): pass

@@ -20,6 +20,12 @@ if "fastapi" not in sys.modules:
         def get(self, *a, **kw):
             def _d(fn): return fn
             return _d
+        def patch(self, *a, **kw):
+            def _d(fn): return fn
+            return _d
+        def delete(self, *a, **kw):
+            def _d(fn): return fn
+            return _d
 
     class _BaseModel:
         def __init__(self, **kwargs):

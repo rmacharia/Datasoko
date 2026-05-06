@@ -4,6 +4,8 @@ import json
 from datetime import date, datetime, timezone
 from typing import Any, Protocol
 
+DEFAULT_ORG_ID = "default_org"
+
 
 class CursorLike(Protocol):
     def execute(self, query: str, params: tuple[Any, ...] | None = None) -> Any: ...
@@ -26,6 +28,7 @@ class ConnectionLike(Protocol):
 CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS ingestion_weekly_payloads (
     id BIGSERIAL PRIMARY KEY,
+    organization_id TEXT,
     business_id TEXT NOT NULL,
     dataset TEXT NOT NULL,
     week_start DATE NOT NULL,
@@ -37,9 +40,13 @@ CREATE TABLE IF NOT EXISTS ingestion_weekly_payloads (
 );
 """.strip()
 
+ENSURE_ORG_COLUMN_SQL = "ALTER TABLE ingestion_weekly_payloads ADD COLUMN IF NOT EXISTS organization_id TEXT"
+ENSURE_ORG_INDEX_SQL = "CREATE INDEX IF NOT EXISTS idx_ingestion_payloads_org_biz ON ingestion_weekly_payloads (organization_id, business_id)"
+
 
 UPSERT_WEEKLY_PAYLOAD_SQL = """
 INSERT INTO ingestion_weekly_payloads (
+    organization_id,
     business_id,
     dataset,
     week_start,
@@ -48,9 +55,10 @@ INSERT INTO ingestion_weekly_payloads (
     created_at,
     updated_at
 )
-VALUES (%s, %s, %s, %s, %s::jsonb, %s, %s)
+VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s, %s)
 ON CONFLICT (business_id, dataset, week_start, week_end)
 DO UPDATE SET
+    organization_id = COALESCE(EXCLUDED.organization_id, ingestion_weekly_payloads.organization_id),
     payload = EXCLUDED.payload,
     updated_at = EXCLUDED.updated_at;
 """.strip()
@@ -58,7 +66,8 @@ DO UPDATE SET
 SELECT_WEEKLY_PAYLOAD_SQL = """
 SELECT payload::text
 FROM ingestion_weekly_payloads
-WHERE business_id = %s
+WHERE (%s IS NULL OR organization_id = %s OR organization_id IS NULL)
+  AND business_id = %s
   AND dataset = %s
   AND week_start = %s
   AND week_end = %s
@@ -68,7 +77,8 @@ LIMIT 1;
 SELECT_PAYLOADS_IN_RANGE_SQL = """
 SELECT payload::text
 FROM ingestion_weekly_payloads
-WHERE business_id = %s
+WHERE (%s IS NULL OR organization_id = %s OR organization_id IS NULL)
+  AND business_id = %s
   AND dataset = %s
   AND week_end >= %s
   AND week_start <= %s
@@ -86,6 +96,8 @@ class PostgresIngestionStore:
         try:
             with self.connection.cursor() as cur:
                 cur.execute(CREATE_TABLE_SQL)
+                cur.execute(ENSURE_ORG_COLUMN_SQL)
+                cur.execute(ENSURE_ORG_INDEX_SQL)
             self.connection.commit()
         except Exception:
             self.connection.rollback()
@@ -99,11 +111,13 @@ class PostgresIngestionStore:
         week_start: date,
         week_end: date,
         payload: dict[str, Any],
+        organization_id: str | None = None,
     ) -> None:
         now_utc = datetime.now(timezone.utc)
         payload_json = self._to_json(payload)
 
         params: tuple[Any, ...] = (
+            organization_id or DEFAULT_ORG_ID,
             business_id,
             dataset,
             week_start,
@@ -131,11 +145,12 @@ class PostgresIngestionStore:
         dataset: str,
         week_start: date,
         week_end: date,
+        organization_id: str | None = None,
     ) -> dict[str, Any] | None:
         with self.connection.cursor() as cur:
             cur.execute(
                 SELECT_WEEKLY_PAYLOAD_SQL,
-                (business_id, dataset, week_start, week_end),
+                (organization_id, organization_id, business_id, dataset, week_start, week_end),
             )
             row = cur.fetchone()
 
@@ -154,11 +169,12 @@ class PostgresIngestionStore:
         dataset: str,
         range_start: date,
         range_end: date,
+        organization_id: str | None = None,
     ) -> list[dict[str, Any]]:
         with self.connection.cursor() as cur:
             cur.execute(
                 SELECT_PAYLOADS_IN_RANGE_SQL,
-                (business_id, dataset, range_start, range_end),
+                (organization_id, organization_id, business_id, dataset, range_start, range_end),
             )
             rows = cur.fetchall()
 

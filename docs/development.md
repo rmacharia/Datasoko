@@ -13,6 +13,8 @@
 ```bash
 pip install -r requirements.txt
 export ADMIN_TOKEN=dev-token
+export JWT_SECRET=dev-jwt-secret
+export ALLOW_BOOTSTRAP_ADMIN=true
 export DATABASE_URL=postgresql://postgres:postgres@localhost:5432/datasoko
 
 # Run migrations
@@ -32,7 +34,7 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:3000/login`, enter your `ADMIN_TOKEN` value.
+Open `http://localhost:3000/setup` for first-time setup, then sign in at `http://localhost:3000/login`.
 
 ### Quick PostgreSQL with Docker
 

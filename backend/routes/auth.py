@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 from uuid import uuid4
 
@@ -15,6 +16,8 @@ from backend.auth import (
     get_current_user,
     hash_password,
     issue_token,
+    is_super_admin,
+    optional_current_user,
     verify_password,
 )
 from backend.db.connection import get_connection
@@ -44,6 +47,31 @@ class RegisterRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: str = Field(min_length=1)
     password: str = Field(min_length=1)
+
+
+def _bootstrap_enabled() -> bool:
+    return os.getenv("ALLOW_BOOTSTRAP_ADMIN", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _super_admin_count(cur: Any) -> int:
+    cur.execute("SELECT COUNT(*) FROM users WHERE role = %s", (ROLE_SUPER_ADMIN,))
+    row = cur.fetchone()
+    return int(row[0] if row else 0)
+
+
+def _audit_auth_event(event_type: str, message: str, *, status: str = "success", email: str | None = None) -> None:
+    try:
+        from backend.routes.analytics import log_activity
+
+        log_activity(
+            business_id="system",
+            event_type=event_type,
+            message=message if email is None else f"{message}: {email}",
+            status=status,
+            organization_id="system",
+        )
+    except Exception:
+        logger.info("auth audit event=%s status=%s email=%s", event_type, status, email)
 
 
 @router.get("/status")
@@ -136,7 +164,10 @@ def bootstrap(payload: BootstrapRequest) -> dict[str, Any]:
 
 
 @router.post("/register")
-def register(payload: RegisterRequest) -> dict[str, Any]:
+def register(
+    payload: RegisterRequest,
+    actor: AuthUser | None = Depends(optional_current_user),
+) -> dict[str, Any]:
     if payload.role not in (ROLE_SUPER_ADMIN, ROLE_ORG_ADMIN, ROLE_SME_USER):
         raise HTTPException(
             status_code=400,
@@ -147,14 +178,54 @@ def register(payload: RegisterRequest) -> dict[str, Any]:
     if payload.role == ROLE_ORG_ADMIN and not payload.organization_id:
         raise HTTPException(status_code=400, detail="organization_id is required for admin")
 
-    organization_id = None if payload.role == ROLE_SUPER_ADMIN else payload.organization_id
-
-    user_id = uuid4().hex
-    pw_hash = hash_password(payload.password)
-
     conn = get_connection()
     try:
         with conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM information_schema.tables WHERE table_name = 'users' LIMIT 1")
+            if cur.fetchone() is None:
+                raise HTTPException(status_code=500, detail="Users table not initialized. Run migrations first.")
+
+            super_admins = _super_admin_count(cur)
+            public_first_super_admin = (
+                payload.role == ROLE_SUPER_ADMIN
+                and super_admins == 0
+                and _bootstrap_enabled()
+                and actor is None
+            )
+
+            if payload.role == ROLE_SUPER_ADMIN and not public_first_super_admin:
+                if actor is None or not is_super_admin(actor):
+                    _audit_auth_event(
+                        "auth_blocked",
+                        "Blocked public super_admin registration attempt",
+                        status="failed",
+                        email=payload.email,
+                    )
+                    raise HTTPException(status_code=403, detail="Public super_admin registration is disabled.")
+
+            if payload.role != ROLE_SUPER_ADMIN:
+                if actor is None or not is_super_admin(actor):
+                    _audit_auth_event(
+                        "auth_blocked",
+                        "Blocked unauthenticated user registration attempt",
+                        status="failed",
+                        email=payload.email,
+                    )
+                    raise HTTPException(status_code=403, detail="Only platform admins can create users.")
+
+            if actor is not None and not is_super_admin(actor):
+                _audit_auth_event(
+                    "auth_escalation",
+                    "Blocked role escalation attempt",
+                    status="failed",
+                    email=payload.email,
+                )
+                raise HTTPException(status_code=403, detail="Only platform admins can create users.")
+
+            organization_id = None if payload.role == ROLE_SUPER_ADMIN else payload.organization_id
+            user_id = uuid4().hex
+            pw_hash = hash_password(payload.password)
+
             cur.execute("SELECT 1 FROM users WHERE email = %s", (payload.email,))
             if cur.fetchone():
                 raise HTTPException(status_code=409, detail="Email already registered")
@@ -171,6 +242,11 @@ def register(payload: RegisterRequest) -> dict[str, Any]:
         raise HTTPException(status_code=500, detail="Registration failed") from exc
     finally:
         conn.close()
+
+    if payload.role == ROLE_SUPER_ADMIN and actor is None:
+        _audit_auth_event("bootstrap", "First super_admin created via ALLOW_BOOTSTRAP_ADMIN", email=payload.email)
+    elif actor is not None:
+        _audit_auth_event("auth_user_created", f"Platform admin {actor.email} created user", email=payload.email)
 
     user = AuthUser(
         id=user_id,

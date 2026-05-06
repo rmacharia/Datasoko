@@ -31,7 +31,8 @@ Required App Settings:
 | Setting | Value |
 |---|---|
 | `DATABASE_URL` | PostgreSQL connection string |
-| `ADMIN_TOKEN` | Bearer token for admin routes |
+| `ADMIN_TOKEN` | Legacy/service bearer token for admin routes |
+| `JWT_SECRET` | JWT signing secret; backend startup fails if missing |
 | `BACKEND_CORS_ORIGINS` | `https://datasoko-web.azurewebsites.net` |
 | `SCM_DO_BUILD_DURING_DEPLOYMENT` | `true` |
 
@@ -40,6 +41,7 @@ Optional App Settings:
 | Setting | Purpose |
 |---|---|
 | `SETTINGS_ENCRYPTION_KEY` | Encryption key for stored secrets |
+| `ALLOW_BOOTSTRAP_ADMIN` | Set `true` only during controlled first-admin setup; keep `false` otherwise |
 | `AZURE_OPENAI_ENDPOINT` | Azure OpenAI endpoint URL |
 | `AZURE_OPENAI_API_KEY` | Azure OpenAI API key |
 | `AZURE_OPENAI_DEPLOYMENT` | Azure OpenAI deployment name |

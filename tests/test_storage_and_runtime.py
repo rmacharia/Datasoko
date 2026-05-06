@@ -83,6 +83,12 @@ if "fastapi" not in sys.modules:
         def get(self, *a, **kw):
             def _d(fn): return fn
             return _d
+        def patch(self, *a, **kw):
+            def _d(fn): return fn
+            return _d
+        def delete(self, *a, **kw):
+            def _d(fn): return fn
+            return _d
 
     sys.modules["fastapi"] = types.SimpleNamespace(
         APIRouter=_APIRouter,
@@ -121,8 +127,8 @@ class RecordingCursor:
         self.connection.executed.append((query, params))
 
         if query == UPSERT_WEEKLY_PAYLOAD_SQL and params is not None:
-            key = (params[0], params[1], params[2], params[3])
-            payload_json = params[4]
+            key = (params[1], params[2], params[3], params[4])
+            payload_json = params[5]
             self.connection.rows[key] = payload_json
 
 
@@ -187,6 +193,7 @@ class StubMetricsStore:
         dataset: str,
         week_start: date,
         week_end: date,
+        organization_id: str | None = None,  # noqa: ARG002
     ) -> dict | None:
         key = (business_id, dataset, week_start, week_end)
         self.calls.append(key)
@@ -234,6 +241,7 @@ class StorageAndRuntimeTests(unittest.TestCase):
         self.assertIn(key, conn.rows)
         self.assertEqual(json.loads(conn.rows[key]), second_payload)
         self.assertIn("ON CONFLICT (business_id, dataset, week_start, week_end)", UPSERT_WEEKLY_PAYLOAD_SQL)
+        self.assertIn("organization_id", UPSERT_WEEKLY_PAYLOAD_SQL)
 
     def test_create_ingestion_runtime_wires_service_and_store_with_ensure_table(self) -> None:
         stub_conn = StubConnection()

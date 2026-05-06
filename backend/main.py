@@ -18,6 +18,20 @@ from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadF
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from backend.auth import (
+    DEFAULT_ORG_ID,
+    ROLE_ORG_ADMIN,
+    ROLE_SUPER_ADMIN,
+    AuthUser,
+    RequestContext,
+    assert_user_can_access_business,
+    get_current_user,
+    get_request_context,
+    get_jwt_secret,
+    is_super_admin,
+    resolve_org_context,
+)
+
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="DataSoko API", version="0.1.0")
@@ -128,6 +142,7 @@ class WeeklyMetricsRequest(BaseModel):
     week_end: date
     slow_mover_days: int = Field(default=14, ge=1)
     top_n_products: int = Field(default=5, ge=1, le=20)
+    organization_id: str | None = None
 
 
 class AdminGenerateReportRequest(BaseModel):
@@ -199,15 +214,16 @@ def _version_payload() -> dict[str, str]:
 
 def _require_admin_token(authorization: str | None = Header(default=None, alias="Authorization")) -> None:
     admin_token = os.getenv("ADMIN_TOKEN", "").strip()
-    if not admin_token:
-        raise HTTPException(status_code=503, detail="ADMIN_TOKEN is not configured.")
-
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing bearer token.")
 
     provided = authorization.removeprefix("Bearer ").strip()
-    if not hmac.compare_digest(provided, admin_token):
-        raise HTTPException(status_code=401, detail="Invalid admin token.")
+    if admin_token and hmac.compare_digest(provided, admin_token):
+        return
+
+    user = get_current_user(authorization)
+    if user.role != ROLE_SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Platform admin access required.")
 
 
 def _require_platform_access(authorization: str | None = Header(default=None, alias="Authorization")) -> None:
@@ -234,6 +250,23 @@ def _require_platform_access(authorization: str | None = Header(default=None, al
         return
 
     raise HTTPException(status_code=401, detail="Invalid or expired token.")
+
+
+def _require_operational_context(ctx: RequestContext = Depends(get_request_context)) -> RequestContext:
+    """JWT-first guard for legacy operational routes.
+
+    Raw ADMIN_TOKEN remains accepted through get_current_user() as a super_admin
+    service identity. Tenant admins may use these routes only within their own
+    organization; business ownership is checked at the DB boundary.
+    """
+    if ctx.user.role not in {ROLE_SUPER_ADMIN, ROLE_ORG_ADMIN}:
+        raise HTTPException(status_code=403, detail="Admin access required.")
+    return ctx
+
+
+@app.on_event("startup")
+async def _require_jwt_secret_on_startup() -> None:
+    get_jwt_secret()
 
 
 def _summary_from_quality(
@@ -296,6 +329,7 @@ def _compute_and_format_report(
     business_name: str,
     sme_type: str,
     currency: str,
+    organization_id: str | None = None,
 ) -> dict[str, Any]:
     payload = WeeklyMetricsRequest(
         business_id=business_id,
@@ -303,6 +337,7 @@ def _compute_and_format_report(
         week_end=week_end,
         slow_mover_days=slow_mover_days,
         top_n_products=top_n_products,
+        organization_id=organization_id,
     )
     metrics = _compute_weekly_metrics(payload)
 
@@ -375,14 +410,20 @@ def _format_whatsapp_report(metrics: dict[str, Any], week_start: str, week_end: 
     return "\n".join(lines)
 
 
-def _get_business_whatsapp_phone(business_id: str) -> str | None:
+def _get_business_whatsapp_phone(business_id: str, organization_id: str | None = None) -> str | None:
     """Look up the whatsapp_phone for a business. Returns None if not found."""
     try:
         from backend.db.connection import get_connection
         conn = get_connection()
         try:
             with conn.cursor() as cur:
-                cur.execute("SELECT whatsapp_phone FROM businesses WHERE id = %s LIMIT 1", (business_id,))
+                if organization_id:
+                    cur.execute(
+                        "SELECT whatsapp_phone FROM businesses WHERE id = %s AND organization_id = %s LIMIT 1",
+                        (business_id, organization_id),
+                    )
+                else:
+                    cur.execute("SELECT whatsapp_phone FROM businesses WHERE id = %s LIMIT 1", (business_id,))
                 row = cur.fetchone()
                 return row[0] if row and row[0] else None
         finally:
@@ -391,7 +432,13 @@ def _get_business_whatsapp_phone(business_id: str) -> str | None:
         return None
 
 
-def _send_whatsapp_report(phone: str, message: str, business_id: str, job_id: str) -> dict[str, Any]:
+def _send_whatsapp_report(
+    phone: str,
+    message: str,
+    business_id: str,
+    job_id: str,
+    organization_id: str = "system",
+) -> dict[str, Any]:
     """Send a WhatsApp message via Twilio. Returns result dict with sent/sid/error."""
     from backend.routes.analytics import log_activity, log_whatsapp_message
 
@@ -401,8 +448,8 @@ def _send_whatsapp_report(phone: str, message: str, business_id: str, job_id: st
 
     if not account_sid or not auth_token or not from_number:
         error_msg = "Twilio not configured"
-        log_whatsapp_message(business_id=business_id, phone=phone, status="failed", message_preview=message[:50], error_detail=error_msg)
-        log_activity(business_id=business_id, event_type="whatsapp", message=f"WhatsApp skipped: {error_msg}", status="failed", metadata={"job_id": job_id})
+        log_whatsapp_message(business_id=business_id, phone=phone, status="failed", message_preview=message[:50], error_detail=error_msg, organization_id=organization_id)
+        log_activity(business_id=business_id, event_type="whatsapp", message=f"WhatsApp skipped: {error_msg}", status="failed", metadata={"job_id": job_id}, organization_id=organization_id)
         return {"sent": False, "sid": None, "error": error_msg}
 
     max_attempts = 2
@@ -419,12 +466,12 @@ def _send_whatsapp_report(phone: str, message: str, business_id: str, job_id: st
             )
             log_whatsapp_message(
                 business_id=business_id, phone=phone, status="sent",
-                message_preview=message[:80], provider="twilio", provider_sid=msg.sid,
+                message_preview=message[:80], provider="twilio", provider_sid=msg.sid, organization_id=organization_id,
             )
             log_activity(
                 business_id=business_id, event_type="whatsapp",
                 message="Report delivered via WhatsApp",
-                status="success", metadata={"job_id": job_id, "sid": msg.sid},
+                status="success", metadata={"job_id": job_id, "sid": msg.sid}, organization_id=organization_id,
             )
             return {"sent": True, "sid": msg.sid, "error": None}
         except Exception as exc:
@@ -432,8 +479,8 @@ def _send_whatsapp_report(phone: str, message: str, business_id: str, job_id: st
             if attempt < max_attempts - 1:
                 continue
 
-    log_whatsapp_message(business_id=business_id, phone=phone, status="failed", message_preview=message[:50], error_detail=last_error[:200])
-    log_activity(business_id=business_id, event_type="whatsapp", message=f"WhatsApp delivery failed: {last_error[:80]}", status="failed", metadata={"job_id": job_id})
+    log_whatsapp_message(business_id=business_id, phone=phone, status="failed", message_preview=message[:50], error_detail=last_error[:200], organization_id=organization_id)
+    log_activity(business_id=business_id, event_type="whatsapp", message=f"WhatsApp delivery failed: {last_error[:80]}", status="failed", metadata={"job_id": job_id}, organization_id=organization_id)
     return {"sent": False, "sid": None, "error": last_error}
 
 
@@ -468,8 +515,25 @@ def version() -> dict[str, str]:
     return _version_payload()
 
 
+def _resolve_business_org_for_context(connection: Any, ctx: RequestContext, business_id: str) -> str:
+    if is_super_admin(ctx.user):
+        if ctx.organization_id:
+            assert_user_can_access_business(ctx.user, business_id, ctx.organization_id, connection)
+            return ctx.organization_id
+        with connection.cursor() as cur:
+            cur.execute("SELECT organization_id FROM businesses WHERE id = %s LIMIT 1", (business_id,))
+            row = cur.fetchone()
+        if row and row[0]:
+            return str(row[0])
+        logger.warning("Falling back to %s for legacy business_id=%s with no organization context", DEFAULT_ORG_ID, business_id)
+        return DEFAULT_ORG_ID
+    org_id = resolve_org_context(ctx)
+    assert_user_can_access_business(ctx.user, business_id, org_id, connection)
+    return org_id
+
+
 @app.post("/ingest/weekly")
-def ingest_weekly(payload: IngestWeeklyRequest) -> dict[str, Any]:
+def ingest_weekly(payload: IngestWeeklyRequest, ctx: RequestContext = Depends(_require_operational_context)) -> dict[str, Any]:
     if payload.week_end < payload.week_start:
         raise HTTPException(status_code=400, detail="week_end must be on or after week_start")
 
@@ -490,6 +554,11 @@ def ingest_weekly(payload: IngestWeeklyRequest) -> dict[str, Any]:
         raise HTTPException(status_code=500, detail=f"Failed to initialize ingestion runtime: {exc}") from exc
 
     try:
+        store_connection = getattr(runtime.service.store, "connection", None)
+        if store_connection is None:
+            raise HTTPException(status_code=500, detail="Ingestion store does not expose a connection for tenant validation")
+        organization_id = _resolve_business_org_for_context(store_connection, ctx, payload.business_id)
+        logger.warning("/ingest/weekly is a legacy operational endpoint; prefer /admin/upload/weekly with JWT context")
         result = runtime.service.ingest_weekly_bundle(
             business_id=payload.business_id,
             week_start=payload.week_start,
@@ -497,6 +566,7 @@ def ingest_weekly(payload: IngestWeeklyRequest) -> dict[str, Any]:
             excel_file_path=payload.excel_file_path,
             mpesa_file_path=payload.mpesa_file_path,
             business_currency=payload.business_currency,
+            organization_id=organization_id,
         )
         response = {
             "excel": result.excel.__dict__ if result.excel else None,
@@ -506,6 +576,7 @@ def ingest_weekly(payload: IngestWeeklyRequest) -> dict[str, Any]:
         _update_last_run(
             {
                 "source": "ingest_weekly",
+                "organization_id": organization_id,
                 "business_id": payload.business_id,
                 "week_start": payload.week_start.isoformat(),
                 "week_end": payload.week_end.isoformat(),
@@ -522,10 +593,11 @@ def ingest_weekly(payload: IngestWeeklyRequest) -> dict[str, Any]:
 
 
 @app.post("/metrics/weekly")
-def weekly_metrics(payload: WeeklyMetricsRequest) -> dict[str, Any]:
+def weekly_metrics(payload: WeeklyMetricsRequest, ctx: RequestContext = Depends(_require_operational_context)) -> dict[str, Any]:
     if payload.week_end < payload.week_start:
         raise HTTPException(status_code=400, detail="week_end must be on or after week_start")
 
+    payload.organization_id = payload.organization_id or resolve_org_context(ctx, payload.organization_id)
     return _compute_weekly_metrics(payload)
 
 
@@ -536,6 +608,7 @@ def weekly_metrics_get(
     week_end: date,
     slow_mover_days: int = 14,
     top_n_products: int = 5,
+    ctx: RequestContext = Depends(_require_operational_context),
 ) -> dict[str, Any]:
     payload = WeeklyMetricsRequest(
         business_id=business_id,
@@ -543,6 +616,7 @@ def weekly_metrics_get(
         week_end=week_end,
         slow_mover_days=slow_mover_days,
         top_n_products=top_n_products,
+        organization_id=resolve_org_context(ctx),
     )
     return _compute_weekly_metrics(payload)
 
@@ -557,7 +631,10 @@ def whatsapp_weekly_message(
     currency: str = "KES",
     slow_mover_days: int = 14,
     top_n_products: int = 5,
+    ctx: RequestContext = Depends(_require_operational_context),
 ) -> dict[str, str]:
+    organization_id = resolve_org_context(ctx)
+    logger.warning("/whatsapp/weekly is a legacy preview endpoint; prefer authenticated report generation")
     report = _compute_and_format_report(
         business_id=business_id,
         week_start=week_start,
@@ -567,6 +644,7 @@ def whatsapp_weekly_message(
         business_name=business_name,
         sme_type=sme_type,
         currency=currency,
+        organization_id=organization_id,
     )
     return report["whatsapp_preview"]
 
@@ -648,7 +726,7 @@ async def admin_upload_weekly(
     business_currency: str = Form("KES"),
     excel_file: UploadFile | None = File(None),
     mpesa_file: UploadFile | None = File(None),
-    _: None = Depends(_require_admin_token),
+    ctx: RequestContext = Depends(_require_operational_context),
 ) -> dict[str, Any]:
     if week_end < week_start:
         raise HTTPException(status_code=400, detail="week_end must be on or after week_start")
@@ -672,6 +750,7 @@ async def admin_upload_weekly(
         result: dict[str, Any],
     ) -> dict[str, Any]:
         return {
+            "organization_id": organization_id,
             "business_id": business_id,
             "dataset": dataset,
             "week_start": week_start.isoformat(),
@@ -703,12 +782,14 @@ async def admin_upload_weekly(
         connection = create_postgres_connection()
         store = PostgresIngestionStore(connection)
         store.ensure_table()
+        organization_id = _resolve_business_org_for_context(connection, ctx, business_id)
 
         if excel_file:
             excel_path = _save_temp_file(excel_file)
             excel_result = load_excel_sales(excel_path, business_currency=business_currency)
             excel_dump = excel_result.model_dump(mode="json")
             store.upsert_weekly_payload(
+                organization_id=organization_id,
                 business_id=business_id,
                 dataset="excel_sales",
                 week_start=week_start,
@@ -738,6 +819,7 @@ async def admin_upload_weekly(
             mpesa_result = load_mpesa_csv(mpesa_path)
             mpesa_dump = mpesa_result.model_dump(mode="json")
             store.upsert_weekly_payload(
+                organization_id=organization_id,
                 business_id=business_id,
                 dataset="mpesa",
                 week_start=week_start,
@@ -764,6 +846,7 @@ async def admin_upload_weekly(
 
         response = {
             "business_id": business_id,
+            "organization_id": organization_id,
             "week_start": week_start.isoformat(),
             "week_end": week_end.isoformat(),
             "excel": excel_response,
@@ -773,6 +856,7 @@ async def admin_upload_weekly(
             {
                 "source": "admin_upload_weekly",
                 "business_id": business_id,
+                "organization_id": organization_id,
                 "week_start": week_start.isoformat(),
                 "week_end": week_end.isoformat(),
                 "excel": excel_response["summary"] if excel_response else None,
@@ -790,6 +874,7 @@ async def admin_upload_weekly(
             event_type="upload",
             message=f"Data uploaded: {', '.join(datasets)}",
             status="success",
+            organization_id=organization_id,
         )
         return response
     except HTTPException:
@@ -816,10 +901,19 @@ def admin_reports(
     business_name: str = "Your Business",
     sme_type: str = "retail",
     currency: str = "KES",
-    _: None = Depends(_require_admin_token),
+    ctx: RequestContext = Depends(_require_operational_context),
 ) -> dict[str, Any]:
     if week_end < week_start:
         raise HTTPException(status_code=400, detail="week_end must be on or after week_start")
+
+    connection = None
+    try:
+        from backend.db.connection import get_connection
+        connection = get_connection()
+        organization_id = _resolve_business_org_for_context(connection, ctx, business_id)
+    finally:
+        if connection is not None:
+            connection.close()
 
     report = _compute_and_format_report(
         business_id=business_id,
@@ -830,9 +924,11 @@ def admin_reports(
         business_name=business_name,
         sme_type=sme_type,
         currency=currency,
+        organization_id=organization_id,
     )
     return {
         "business_id": business_id,
+        "organization_id": organization_id,
         "week_start": week_start.isoformat(),
         "week_end": week_end.isoformat(),
         **report,
@@ -840,7 +936,7 @@ def admin_reports(
 
 
 @app.post("/admin/reports/generate")
-def admin_generate_report(payload: AdminGenerateReportRequest, _: None = Depends(_require_admin_token)) -> dict[str, Any]:
+def admin_generate_report(payload: AdminGenerateReportRequest, ctx: RequestContext = Depends(_require_operational_context)) -> dict[str, Any]:
     if payload.week_end < payload.week_start:
         raise HTTPException(status_code=400, detail="week_end must be on or after week_start")
 
@@ -849,6 +945,15 @@ def admin_generate_report(payload: AdminGenerateReportRequest, _: None = Depends
 
     if not payload.business_id:
         raise HTTPException(status_code=400, detail="business_id is required when all_businesses is false.")
+
+    connection = None
+    try:
+        from backend.db.connection import get_connection
+        connection = get_connection()
+        organization_id = _resolve_business_org_for_context(connection, ctx, payload.business_id)
+    finally:
+        if connection is not None:
+            connection.close()
 
     job_id = uuid4().hex
     job = {
@@ -859,6 +964,7 @@ def admin_generate_report(payload: AdminGenerateReportRequest, _: None = Depends
         "finished_at": None,
         "error": None,
         "business_id": payload.business_id,
+        "organization_id": organization_id,
         "week_start": payload.week_start.isoformat(),
         "week_end": payload.week_end.isoformat(),
         "result_summary": None,
@@ -878,6 +984,7 @@ def admin_generate_report(payload: AdminGenerateReportRequest, _: None = Depends
             business_name=payload.business_name,
             sme_type=payload.sme_type,
             currency=payload.currency,
+            organization_id=organization_id,
         )
 
         metrics = report["metrics_json"]
@@ -893,6 +1000,7 @@ def admin_generate_report(payload: AdminGenerateReportRequest, _: None = Depends
             {
                 "source": "admin_generate_report",
                 "business_id": payload.business_id,
+                "organization_id": organization_id,
                 "week_start": payload.week_start.isoformat(),
                 "week_end": payload.week_end.isoformat(),
                 "job_id": job_id,
@@ -905,17 +1013,18 @@ def admin_generate_report(payload: AdminGenerateReportRequest, _: None = Depends
             event_type="report",
             message=f"Report generated — revenue: {metrics.get('weekly_revenue')}",
             status="success",
+            organization_id=organization_id,
         )
 
         if payload.send_whatsapp:
-            phone = _get_business_whatsapp_phone(payload.business_id)
+            phone = _get_business_whatsapp_phone(payload.business_id, organization_id)
             if phone:
                 wa_message = _format_whatsapp_report(
                     metrics,
                     payload.week_start.isoformat(),
                     payload.week_end.isoformat(),
                 )
-                wa_result = _send_whatsapp_report(phone, wa_message, payload.business_id, job_id)
+                wa_result = _send_whatsapp_report(phone, wa_message, payload.business_id, job_id, organization_id=organization_id)
             else:
                 wa_result = {"sent": False, "sid": None, "error": "No WhatsApp phone configured for business"}
                 log_activity(
@@ -924,6 +1033,7 @@ def admin_generate_report(payload: AdminGenerateReportRequest, _: None = Depends
                     message="WhatsApp skipped: no phone configured",
                     status="failed",
                     metadata={"job_id": job_id},
+                    organization_id=organization_id,
                 )
             job["whatsapp"] = wa_result
         else:
@@ -938,6 +1048,7 @@ def admin_generate_report(payload: AdminGenerateReportRequest, _: None = Depends
             event_type="error",
             message=f"Report generation failed: {str(exc)[:100]}",
             status="failed",
+            organization_id=organization_id,
         )
 
     return {
@@ -947,10 +1058,12 @@ def admin_generate_report(payload: AdminGenerateReportRequest, _: None = Depends
 
 
 @app.get("/admin/jobs/{job_id}")
-def admin_job_status(job_id: str, _: None = Depends(_require_admin_token)) -> dict[str, Any]:
+def admin_job_status(job_id: str, ctx: RequestContext = Depends(_require_operational_context)) -> dict[str, Any]:
     job = JOBS.get(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found.")
+    if not is_super_admin(ctx.user) and job.get("organization_id") != ctx.user.organization_id:
+        raise HTTPException(status_code=403, detail="Cross-organization access denied.")
     return job
 
 
@@ -1176,6 +1289,7 @@ def _compute_weekly_metrics(payload: WeeklyMetricsRequest) -> dict[str, Any]:
         payloads: list[dict[str, Any]] = []
         if hasattr(store, "get_payloads_in_range"):
             payloads = store.get_payloads_in_range(
+                organization_id=payload.organization_id,
                 business_id=payload.business_id,
                 dataset="excel_sales",
                 range_start=range_start,
@@ -1184,12 +1298,14 @@ def _compute_weekly_metrics(payload: WeeklyMetricsRequest) -> dict[str, Any]:
         else:
             # Backward compatibility with older store stubs.
             weekly_payload = store.get_weekly_payload(
+                organization_id=payload.organization_id,
                 business_id=payload.business_id,
                 dataset="excel_sales",
                 week_start=payload.week_start,
                 week_end=payload.week_end,
             )
             previous_week_payload = store.get_weekly_payload(
+                organization_id=payload.organization_id,
                 business_id=payload.business_id,
                 dataset="excel_sales",
                 week_start=prev_week_start,

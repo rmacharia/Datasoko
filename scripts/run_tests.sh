@@ -9,6 +9,7 @@ run_unit() {
   python3 -m unittest -q "$ROOT_DIR/tests/test_admin_settings_api.py"
   python3 -m unittest -q "$ROOT_DIR/tests/test_storage_and_runtime.py"
   python3 -m unittest -q "$ROOT_DIR/tests/test_metrics_contracts.py"
+  python3 -m unittest -q "$ROOT_DIR/tests/test_auth_hardening.py"
 }
 
 run_integration() {

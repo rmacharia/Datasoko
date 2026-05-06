@@ -14,8 +14,8 @@ from fastapi import Depends, Header, HTTPException
 
 logger = logging.getLogger(__name__)
 
-JWT_SECRET = os.getenv("JWT_SECRET", "").strip()
 JWT_EXPIRY_SECONDS = 3600
+DEFAULT_ORG_ID = os.getenv("DEFAULT_ORG_ID", "default_org").strip() or "default_org"
 
 # Role taxonomy
 ROLE_SUPER_ADMIN = "super_admin"
@@ -72,8 +72,21 @@ def _b64url_decode(s: str) -> bytes:
     return base64.urlsafe_b64decode(s)
 
 
+def get_jwt_secret() -> str:
+    """Return the configured JWT signing secret or fail closed.
+
+    Phase 2 auth must never silently fall back to a public or static secret.
+    Azure/local deployments should set JWT_SECRET explicitly; ADMIN_TOKEN may
+    remain as a legacy service credential but is not a JWT signing key.
+    """
+    secret = os.getenv("JWT_SECRET", "").strip()
+    if not secret:
+        raise RuntimeError("JWT_SECRET is required for JWT auth. Configure it before starting DataSoko.")
+    return secret
+
+
 def create_jwt(payload: dict[str, Any]) -> str:
-    secret = JWT_SECRET or os.getenv("ADMIN_TOKEN", "fallback-secret")
+    secret = get_jwt_secret()
     header = {"alg": "HS256", "typ": "JWT"}
     header_b64 = _b64url_encode(json.dumps(header, separators=(",", ":")).encode())
     payload_b64 = _b64url_encode(json.dumps(payload, separators=(",", ":")).encode())
@@ -84,7 +97,11 @@ def create_jwt(payload: dict[str, Any]) -> str:
 
 
 def decode_jwt(token: str) -> dict[str, Any] | None:
-    secret = JWT_SECRET or os.getenv("ADMIN_TOKEN", "fallback-secret")
+    try:
+        secret = get_jwt_secret()
+    except RuntimeError:
+        logger.error("JWT_SECRET is not configured; JWT decode refused")
+        return None
     parts = token.split(".")
     if len(parts) != 3:
         return None
@@ -158,6 +175,15 @@ def get_current_user(authorization: str | None = Header(default=None, alias="Aut
         )
 
     raise HTTPException(status_code=401, detail="Invalid or expired token.")
+
+
+def optional_current_user(authorization: str | None = Header(default=None, alias="Authorization")) -> AuthUser | None:
+    if not authorization:
+        return None
+    try:
+        return get_current_user(authorization)
+    except HTTPException:
+        return None
 
 
 def require_role(*allowed_roles: str):
@@ -238,3 +264,46 @@ def require_tenant_or_platform(
     if ctx.user.role not in allowed:
         raise HTTPException(status_code=403, detail="Forbidden")
     return ctx
+
+
+def resolve_org_context(ctx: RequestContext, requested_org_id: str | None = None) -> str:
+    """Resolve the effective organization without trusting client input.
+
+    Tenant users are pinned to their JWT organization. Super admins may provide
+    org context through the trusted platform-mode header, with default_org kept
+    as an explicit compatibility fallback only when no org has been selected.
+    """
+    if ctx.user.role == ROLE_SUPER_ADMIN:
+        return ctx.organization_id or requested_org_id or DEFAULT_ORG_ID
+    if not ctx.user.organization_id:
+        raise HTTPException(status_code=403, detail="No organization assigned to this user.")
+    if requested_org_id and requested_org_id != ctx.user.organization_id:
+        raise HTTPException(status_code=403, detail="Cross-organization access denied.")
+    return ctx.user.organization_id
+
+
+def assert_business_belongs_to_org(connection: Any, business_id: str, organization_id: str) -> None:
+    with connection.cursor() as cur:
+        cur.execute(
+            "SELECT 1 FROM businesses WHERE id = %s AND organization_id = %s LIMIT 1",
+            (business_id, organization_id),
+        )
+        if cur.fetchone() is None:
+            raise HTTPException(status_code=403, detail="Business does not belong to the selected organization.")
+
+
+def assert_user_can_access_business(user: AuthUser, business_id: str, organization_id: str, connection: Any) -> None:
+    if is_super_admin(user):
+        assert_business_belongs_to_org(connection, business_id, organization_id)
+        return
+    if is_org_admin(user):
+        if user.organization_id != organization_id:
+            raise HTTPException(status_code=403, detail="Cross-organization access denied.")
+        assert_business_belongs_to_org(connection, business_id, organization_id)
+        return
+    if is_sme_user(user):
+        if user.organization_id != organization_id or user.business_id != business_id:
+            raise HTTPException(status_code=403, detail="Access denied for this business.")
+        assert_business_belongs_to_org(connection, business_id, organization_id)
+        return
+    raise HTTPException(status_code=403, detail="Forbidden")

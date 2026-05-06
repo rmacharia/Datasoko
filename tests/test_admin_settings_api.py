@@ -74,6 +74,12 @@ if "fastapi" not in sys.modules:
         def get(self, *a, **kw):
             def _d(fn): return fn
             return _d
+        def patch(self, *a, **kw):
+            def _d(fn): return fn
+            return _d
+        def delete(self, *a, **kw):
+            def _d(fn): return fn
+            return _d
 
     sys.modules["fastapi"] = types.SimpleNamespace(
         APIRouter=_APIRouter,
@@ -113,6 +119,7 @@ def _collect_keys(value: object, sink: set[str]) -> None:
 class AdminSettingsApiTests(unittest.TestCase):
     def setUp(self) -> None:
         os.environ["ADMIN_TOKEN"] = "test-admin-token"
+        os.environ["JWT_SECRET"] = "test-jwt-secret"
         SETTINGS_STORE._memory_non_secret = default_non_secret_settings()
         SETTINGS_STORE._secret_overrides = {}
 

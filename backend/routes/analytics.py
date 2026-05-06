@@ -8,9 +8,10 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 
 from backend.auth import (
     RequestContext,
-    get_current_user,
+    assert_user_can_access_business,
     is_sme_user,
     require_tenant_or_platform,
+    resolve_org_context,
 )
 from backend.db.connection import get_connection
 
@@ -20,9 +21,7 @@ router = APIRouter(prefix="/analytics", tags=["analytics"])
 
 
 def _ctx_org(ctx: RequestContext) -> str:
-    if not ctx.organization_id:
-        raise HTTPException(status_code=400, detail="organization_id missing from context")
-    return ctx.organization_id
+    return resolve_org_context(ctx)
 
 
 # Default per-message cost used when the provider doesn't report one.
@@ -50,7 +49,7 @@ SELECT
     payload
 FROM ingestion_weekly_payloads
 WHERE business_id = %s
-  AND organization_id = %s
+  AND (organization_id = %s OR organization_id IS NULL)
   AND dataset = 'excel_sales'
 ORDER BY week_start ASC
 LIMIT 52
@@ -68,7 +67,7 @@ SELECT
     created_at
 FROM ingestion_weekly_payloads
 WHERE business_id = %s
-  AND organization_id = %s
+  AND (organization_id = %s OR organization_id IS NULL)
 ORDER BY created_at DESC
 LIMIT 20
 """.strip()
@@ -140,7 +139,8 @@ def get_analytics_metrics(
             total_expenses += week_expenses
 
         # Enrich expenses from M-Pesa data if available
-        _enrich_expenses(connection, business_id, expenses_trend, profit_trend)
+        assert_user_can_access_business(ctx.user, business_id, organization_id, connection)
+        _enrich_expenses(connection, organization_id, business_id, expenses_trend, profit_trend)
         recalc_total_expenses = sum(e["value"] for e in expenses_trend)
 
         return {
@@ -164,6 +164,7 @@ def get_analytics_metrics(
 
 def _enrich_expenses(
     connection: Any,
+    organization_id: str,
     business_id: str,
     expenses_trend: list[dict[str, Any]],
     profit_trend: list[dict[str, Any]],
@@ -173,11 +174,11 @@ def _enrich_expenses(
         sql = """
         SELECT week_start, payload
         FROM ingestion_weekly_payloads
-        WHERE business_id = %s AND dataset = 'mpesa'
+        WHERE (organization_id = %s OR organization_id IS NULL) AND business_id = %s AND dataset = 'mpesa'
         ORDER BY week_start ASC LIMIT 52
         """
         with connection.cursor() as cur:
-            cur.execute(sql, (business_id,))
+            cur.execute(sql, (organization_id, business_id))
             rows = cur.fetchall()
 
         mpesa_by_date: dict[str, float] = {}
@@ -216,6 +217,7 @@ def get_analytics_uploads(
     connection = get_connection()
     try:
         with connection.cursor() as cur:
+            assert_user_can_access_business(ctx.user, business_id, organization_id, connection)
             cur.execute(_UPLOADS_SQL, (business_id, organization_id))
             rows = cur.fetchall()
 
@@ -261,6 +263,7 @@ def get_analytics_whatsapp(
             if cur.fetchone() is None:
                 return {"total_sent": 0, "last_sent": None, "success_rate": 0.0}
 
+            assert_user_can_access_business(ctx.user, business_id, organization_id, connection)
             cur.execute(_WHATSAPP_STATS_SQL, (organization_id, business_id))
             row = cur.fetchone()
 
@@ -300,6 +303,7 @@ def get_analytics_activity(
             if cur.fetchone() is None:
                 return []
 
+            assert_user_can_access_business(ctx.user, business_id, organization_id, connection)
             cur.execute(_ACTIVITY_SQL, (business_id, organization_id))
             rows = cur.fetchall()
 

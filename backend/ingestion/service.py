@@ -20,6 +20,7 @@ class NormalizedPayloadStore(Protocol):
         week_start: date,
         week_end: date,
         payload: dict[str, Any],
+        organization_id: str | None = None,
     ) -> None:
         """Persist a normalized JSONB-ready payload."""
 
@@ -57,6 +58,7 @@ class IngestionService:
         week_start: date,
         week_end: date,
         business_currency: str = "KES",
+        organization_id: str | None = None,
     ) -> IngestionSummary:
         result = load_excel_sales(file_path, business_currency=business_currency)
         payload = self._build_jsonb_payload(
@@ -64,6 +66,7 @@ class IngestionService:
             dataset="excel_sales",
             week_start=week_start,
             week_end=week_end,
+            organization_id=organization_id,
             source_file=Path(file_path).name,
             result=result.model_dump(mode="json"),
         )
@@ -73,6 +76,7 @@ class IngestionService:
             week_start=week_start,
             week_end=week_end,
             payload=payload,
+            organization_id=organization_id,
         )
         summary = self._to_summary(
             business_id=business_id,
@@ -92,6 +96,7 @@ class IngestionService:
         file_path: str | Path,
         week_start: date,
         week_end: date,
+        organization_id: str | None = None,
     ) -> IngestionSummary:
         result = load_mpesa_csv(file_path)
         payload = self._build_jsonb_payload(
@@ -99,6 +104,7 @@ class IngestionService:
             dataset="mpesa",
             week_start=week_start,
             week_end=week_end,
+            organization_id=organization_id,
             source_file=Path(file_path).name,
             result=result.model_dump(mode="json"),
         )
@@ -108,6 +114,7 @@ class IngestionService:
             week_start=week_start,
             week_end=week_end,
             payload=payload,
+            organization_id=organization_id,
         )
         summary = self._to_summary(
             business_id=business_id,
@@ -129,6 +136,7 @@ class IngestionService:
         excel_file_path: str | Path | None = None,
         mpesa_file_path: str | Path | None = None,
         business_currency: str = "KES",
+        organization_id: str | None = None,
     ) -> IngestionBundleResult:
         excel_summary: IngestionSummary | None = None
         mpesa_summary: IngestionSummary | None = None
@@ -140,6 +148,7 @@ class IngestionService:
                 week_start=week_start,
                 week_end=week_end,
                 business_currency=business_currency,
+                organization_id=organization_id,
             )
 
         if mpesa_file_path:
@@ -148,6 +157,7 @@ class IngestionService:
                 file_path=mpesa_file_path,
                 week_start=week_start,
                 week_end=week_end,
+                organization_id=organization_id,
             )
 
         return IngestionBundleResult(excel=excel_summary, mpesa=mpesa_summary)
@@ -159,11 +169,13 @@ class IngestionService:
         dataset: str,
         week_start: date,
         week_end: date,
+        organization_id: str | None,
         source_file: str,
         result: dict[str, Any],
     ) -> dict[str, Any]:
         return {
             "business_id": business_id,
+            "organization_id": organization_id,
             "dataset": dataset,
             "week_start": week_start.isoformat(),
             "week_end": week_end.isoformat(),
@@ -183,6 +195,7 @@ class IngestionService:
         week_start: date,
         week_end: date,
         payload: dict[str, Any],
+        organization_id: str | None = None,
     ) -> bool:
         if not self.store:
             return False
@@ -193,6 +206,7 @@ class IngestionService:
             week_start=week_start,
             week_end=week_end,
             payload=payload,
+            organization_id=organization_id,
         )
         return True
 
