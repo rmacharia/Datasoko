@@ -63,6 +63,7 @@ export type AuthResponse = {
 export type AuthStatusResponse = {
   initialized: boolean;
   user_count: number;
+  bootstrap_allowed?: boolean;
 };
 
 export type BootstrapRequest = {

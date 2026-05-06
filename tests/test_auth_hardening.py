@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import patch
 
 from backend.auth import ROLE_ORG_ADMIN, ROLE_SUPER_ADMIN, AuthUser, create_jwt, get_jwt_secret
-from backend.routes.auth import RegisterRequest, register
+from backend.routes.auth import BootstrapRequest, RegisterRequest, auth_status, bootstrap, register
 
 
 class _Cursor:
@@ -30,14 +30,17 @@ class _Cursor:
             return (1,)
         if "COUNT(*) FROM users WHERE role" in self.last_query:
             return (self.conn.super_admin_count,)
+        if "COUNT(*) FROM users" in self.last_query:
+            return (self.conn.user_count,)
         if "SELECT 1 FROM users WHERE email" in self.last_query:
             return None
         return None
 
 
 class _Conn:
-    def __init__(self, super_admin_count: int) -> None:
+    def __init__(self, super_admin_count: int, user_count: int | None = None) -> None:
         self.super_admin_count = super_admin_count
+        self.user_count = super_admin_count if user_count is None else user_count
         self.executed = []
         self.inserted = None
         self.commit_count = 0
@@ -91,6 +94,28 @@ class AuthHardeningTests(unittest.TestCase):
         self.assertEqual(conn.commit_count, 1)
         self.assertEqual(response["user"]["role"], ROLE_SUPER_ADMIN)
         self.assertTrue(response["access_token"])
+
+    def test_bootstrap_endpoint_requires_bootstrap_flag(self) -> None:
+        payload = BootstrapRequest(email="root@example.com", password="secret1")
+
+        with self.assertRaises(Exception) as ctx:
+            bootstrap(payload)
+
+        self.assertEqual(getattr(ctx.exception, "status_code", None), 403)
+
+    def test_auth_status_reports_bootstrap_allowed_only_when_enabled_and_empty(self) -> None:
+        conn = _Conn(super_admin_count=0, user_count=0)
+
+        with patch("backend.routes.auth.get_connection", return_value=conn):
+            status = auth_status()
+        self.assertFalse(status["initialized"])
+        self.assertFalse(status["bootstrap_allowed"])
+
+        os.environ["ALLOW_BOOTSTRAP_ADMIN"] = "true"
+        with patch("backend.routes.auth.get_connection", return_value=conn):
+            status = auth_status()
+        self.assertFalse(status["initialized"])
+        self.assertTrue(status["bootstrap_allowed"])
 
     def test_org_admin_registration_requires_platform_admin(self) -> None:
         conn = _Conn(super_admin_count=1)

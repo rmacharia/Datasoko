@@ -76,19 +76,31 @@ def _audit_auth_event(event_type: str, message: str, *, status: str = "success",
 
 @router.get("/status")
 def auth_status() -> dict[str, Any]:
-    """Check if any users exist (for setup flow)."""
+    """Check setup state for the first-admin flow."""
     conn = get_connection()
     try:
         with conn.cursor() as cur:
             cur.execute("SELECT 1 FROM information_schema.tables WHERE table_name = 'users' LIMIT 1")
             if cur.fetchone() is None:
-                return {"initialized": False, "user_count": 0}
+                return {
+                    "initialized": False,
+                    "user_count": 0,
+                    "bootstrap_allowed": False,
+                }
             cur.execute("SELECT COUNT(*) FROM users")
             count = cur.fetchone()[0]
-        return {"initialized": count > 0, "user_count": count}
+        return {
+            "initialized": count > 0,
+            "user_count": count,
+            "bootstrap_allowed": count == 0 and _bootstrap_enabled(),
+        }
     except Exception as exc:
         logger.warning("auth/status check failed: %s", exc)
-        return {"initialized": False, "user_count": 0}
+        return {
+            "initialized": False,
+            "user_count": 0,
+            "bootstrap_allowed": False,
+        }
     finally:
         conn.close()
 
@@ -96,6 +108,15 @@ def auth_status() -> dict[str, Any]:
 @router.post("/bootstrap")
 def bootstrap(payload: BootstrapRequest) -> dict[str, Any]:
     """Create the first admin user. Only works when no users exist."""
+    if not _bootstrap_enabled():
+        _audit_auth_event(
+            "auth_blocked",
+            "Blocked bootstrap attempt while ALLOW_BOOTSTRAP_ADMIN is disabled",
+            status="failed",
+            email=payload.email,
+        )
+        raise HTTPException(status_code=403, detail="Bootstrap is disabled.")
+
     conn = get_connection()
     try:
         with conn.cursor() as cur:

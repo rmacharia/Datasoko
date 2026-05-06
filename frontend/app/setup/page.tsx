@@ -1,6 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
@@ -29,6 +30,7 @@ export default function SetupPage() {
   const { pushToast } = useToast();
   const [error, setError] = useState<string | null>(null);
   const [checking, setChecking] = useState(true);
+  const [bootstrapAllowed, setBootstrapAllowed] = useState(false);
 
   const {
     register,
@@ -47,11 +49,15 @@ export default function SetupPage() {
         if (status.initialized) {
           router.replace("/login");
         } else {
+          setBootstrapAllowed(Boolean(status.bootstrap_allowed));
           setChecking(false);
         }
       })
       .catch(() => {
-        if (mounted) setChecking(false);
+        if (mounted) {
+          setBootstrapAllowed(false);
+          setChecking(false);
+        }
       });
     return () => { mounted = false; };
   }, [router]);
@@ -77,6 +83,26 @@ export default function SetupPage() {
     return (
       <main className="mx-auto flex min-h-screen max-w-5xl items-center justify-center p-6">
         <p className="text-sm muted loading-pulse">Checking system status...</p>
+      </main>
+    );
+  }
+
+  if (!bootstrapAllowed) {
+    return (
+      <main className="mx-auto flex min-h-screen max-w-5xl items-center justify-center p-6">
+        <section className="card card-glow w-full max-w-md p-8">
+          <div className="mb-6">
+            <p className="text-xs uppercase tracking-[0.14em] text-[var(--text-muted)]">DataSoko</p>
+            <h1 className="mt-1 text-2xl font-semibold tracking-tight">System Setup Unavailable</h1>
+            <p className="mt-2 text-sm muted">
+              First-admin setup is currently disabled. A platform operator must enable bootstrap mode before this page can initialize the system.
+            </p>
+          </div>
+
+          <Link href="/login" className="text-sm text-[var(--accent)] underline">
+            Return to sign in
+          </Link>
+        </section>
       </main>
     );
   }

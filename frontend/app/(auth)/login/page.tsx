@@ -11,7 +11,7 @@ import { useAuth } from "@/components/auth-provider";
 import { useToast } from "@/components/toast-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { authLogin, isApiError } from "@/lib/api";
+import { authLogin, authStatus, isApiError } from "@/lib/api";
 
 const loginSchema = z.object({
   email: z.string().email("Enter a valid email address."),
@@ -25,6 +25,7 @@ export default function LoginPage() {
   const { isAuthenticated, isReady, login } = useAuth();
   const { pushToast } = useToast();
   const [error, setError] = useState<string | null>(null);
+  const [setupAvailable, setSetupAvailable] = useState(false);
 
   const {
     register,
@@ -40,6 +41,22 @@ export default function LoginPage() {
       router.replace("/");
     }
   }, [isReady, isAuthenticated, router]);
+
+  useEffect(() => {
+    let mounted = true;
+    void authStatus()
+      .then((status) => {
+        if (mounted) {
+          setSetupAvailable(!status.initialized && Boolean(status.bootstrap_allowed));
+        }
+      })
+      .catch(() => {
+        if (mounted) {
+          setSetupAvailable(false);
+        }
+      });
+    return () => { mounted = false; };
+  }, []);
 
   const onSubmit = async (values: LoginForm) => {
     setError(null);
@@ -118,12 +135,14 @@ export default function LoginPage() {
           </Button>
         </form>
 
-        <p className="mt-4 text-center text-xs muted">
-          First time?{" "}
-          <Link href="/setup" className="text-[var(--accent)] underline">
-            Initialize the system
-          </Link>
-        </p>
+        {setupAvailable ? (
+          <p className="mt-4 text-center text-xs muted">
+            First time?{" "}
+            <Link href="/setup" className="text-[var(--accent)] underline">
+              Initialize the system
+            </Link>
+          </p>
+        ) : null}
       </section>
     </main>
   );
