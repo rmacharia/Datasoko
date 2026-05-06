@@ -9,9 +9,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from backend.auth import (
-    AuthUser,
+    ROLE_ORG_ADMIN,
+    ROLE_SUPER_ADMIN,
     RequestContext,
-    require_org_admin_only,
+    assert_business_belongs_to_org,
     require_tenant_or_platform,
 )
 from backend.db.connection import get_connection
@@ -24,7 +25,7 @@ router = APIRouter(prefix="/schedules", tags=["schedules"])
 class CreateScheduleRequest(BaseModel):
     business_id: str | None = None
     frequency: str = Field(min_length=1)
-    time_of_day: str = Field(min_length=5, max_length=5)
+    time_of_day: str = Field(min_length=5, max_length=5, pattern=r"^\d{2}:\d{2}$")
     day_of_week: int | None = Field(default=None, ge=0, le=6)
     day_of_month: int | None = Field(default=None, ge=1, le=31)
     start_date: date
@@ -34,7 +35,7 @@ class CreateScheduleRequest(BaseModel):
 
 class UpdateScheduleRequest(BaseModel):
     frequency: str | None = None
-    time_of_day: str | None = None
+    time_of_day: str | None = Field(default=None, min_length=5, max_length=5, pattern=r"^\d{2}:\d{2}$")
     day_of_week: int | None = Field(default=None, ge=0, le=6)
     day_of_month: int | None = Field(default=None, ge=1, le=31)
     start_date: date | None = None
@@ -43,16 +44,18 @@ class UpdateScheduleRequest(BaseModel):
     is_active: bool | None = None
 
 
-def _require_org(user: AuthUser) -> str:
-    if not user.organization_id:
-        raise HTTPException(status_code=400, detail="organization_id missing from token")
-    return user.organization_id
+def _require_schedule_admin(ctx: RequestContext) -> str:
+    if ctx.user.role not in {ROLE_SUPER_ADMIN, ROLE_ORG_ADMIN}:
+        raise HTTPException(status_code=403, detail="Only admins can manage report schedules")
+    if not ctx.organization_id:
+        raise HTTPException(status_code=400, detail="organization_id missing from context")
+    return ctx.organization_id
 
 
 @router.post("")
 def create_schedule(
     payload: CreateScheduleRequest,
-    user: AuthUser = Depends(require_org_admin_only),
+    ctx: RequestContext = Depends(require_tenant_or_platform),
 ) -> dict[str, Any]:
     if payload.frequency not in ("daily", "weekly", "monthly"):
         raise HTTPException(status_code=400, detail="frequency must be daily, weekly, or monthly")
@@ -61,13 +64,18 @@ def create_schedule(
     if payload.frequency == "monthly" and payload.day_of_month is None:
         raise HTTPException(status_code=400, detail="day_of_month required for monthly schedules")
 
-    organization_id = _require_org(user)
+    organization_id = _require_schedule_admin(ctx)
     schedule_id = uuid4().hex
-    parsed_time = time.fromisoformat(payload.time_of_day)
+    try:
+        parsed_time = time.fromisoformat(payload.time_of_day)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="time_of_day must use HH:MM format") from exc
 
     conn = get_connection()
     try:
         with conn.cursor() as cur:
+            if payload.business_id:
+                assert_business_belongs_to_org(conn, payload.business_id, organization_id)
             cur.execute("""
                 INSERT INTO report_schedules
                     (id, organization_id, business_id, frequency, time_of_day,
@@ -180,9 +188,9 @@ def list_schedules(
 def update_schedule(
     schedule_id: str,
     payload: UpdateScheduleRequest,
-    user: AuthUser = Depends(require_org_admin_only),
+    ctx: RequestContext = Depends(require_tenant_or_platform),
 ) -> dict[str, Any]:
-    organization_id = _require_org(user)
+    organization_id = _require_schedule_admin(ctx)
 
     updates: list[str] = []
     values: list[Any] = []
@@ -192,7 +200,10 @@ def update_schedule(
         values.append(payload.frequency)
     if payload.time_of_day is not None:
         updates.append("time_of_day = %s")
-        values.append(time.fromisoformat(payload.time_of_day))
+        try:
+            values.append(time.fromisoformat(payload.time_of_day))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="time_of_day must use HH:MM format") from exc
     if payload.day_of_week is not None:
         updates.append("day_of_week = %s")
         values.append(payload.day_of_week)
@@ -243,9 +254,9 @@ def update_schedule(
 @router.delete("/{schedule_id}")
 def delete_schedule(
     schedule_id: str,
-    user: AuthUser = Depends(require_org_admin_only),
+    ctx: RequestContext = Depends(require_tenant_or_platform),
 ) -> dict[str, Any]:
-    organization_id = _require_org(user)
+    organization_id = _require_schedule_admin(ctx)
     conn = get_connection()
     try:
         with conn.cursor() as cur:

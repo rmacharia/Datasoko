@@ -21,19 +21,38 @@ import {
 
 const DAYS_OF_WEEK = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-const scheduleSchema = z.object({
-  frequency: z.enum(["daily", "weekly", "monthly"]),
-  time_of_day: z.string().regex(/^\d{2}:\d{2}$/, "Use HH:MM format"),
-  day_of_week: z.coerce.number().min(0).max(6).optional(),
-  day_of_month: z.coerce.number().min(1).max(31).optional(),
-  business_id: z.string().optional(),
-  all_businesses: z.boolean().default(false),
-  start_date: z.string().min(1, "Start date is required"),
-  end_date: z.string().optional(),
-  send_whatsapp: z.boolean().default(true),
-});
+const scheduleSchema = z
+  .object({
+    frequency: z.enum(["daily", "weekly", "monthly"]),
+    time_of_day: z.string().regex(/^\d{2}:\d{2}$/, "Use HH:MM format"),
+    day_of_week: z.coerce.number().min(0).max(6).optional(),
+    day_of_month: z.coerce.number().min(1).max(31).optional(),
+    business_id: z.string().optional(),
+    all_businesses: z.boolean().default(false),
+    start_date: z.string().min(1, "Start date is required"),
+    end_date: z.string().optional(),
+    send_whatsapp: z.boolean().default(true),
+  })
+  .refine((value) => !value.end_date || value.end_date >= value.start_date, {
+    message: "End date must be on or after start date",
+    path: ["end_date"],
+  });
 
 type ScheduleForm = z.infer<typeof scheduleSchema>;
+
+function scheduleDefaults(activeBusinessId: string | null): ScheduleForm {
+  return {
+    frequency: "weekly",
+    time_of_day: "18:00",
+    day_of_week: 4,
+    day_of_month: 1,
+    business_id: activeBusinessId ?? "",
+    all_businesses: false,
+    start_date: new Date().toISOString().slice(0, 10),
+    end_date: "",
+    send_whatsapp: true,
+  };
+}
 
 export function ScheduleManager() {
   const { token } = useAuth();
@@ -46,21 +65,17 @@ export function ScheduleManager() {
 
   const form = useForm<ScheduleForm>({
     resolver: zodResolver(scheduleSchema),
-    defaultValues: {
-      frequency: "weekly",
-      time_of_day: "18:00",
-      day_of_week: 4,
-      day_of_month: 1,
-      business_id: activeBusinessId ?? "",
-      all_businesses: false,
-      start_date: new Date().toISOString().slice(0, 10),
-      end_date: "",
-      send_whatsapp: true,
-    },
+    defaultValues: scheduleDefaults(activeBusinessId),
   });
 
   const frequency = form.watch("frequency");
   const allBusinesses = form.watch("all_businesses");
+
+  useEffect(() => {
+    if (!allBusinesses && activeBusinessId && !form.getValues("business_id")) {
+      form.setValue("business_id", activeBusinessId);
+    }
+  }, [activeBusinessId, allBusinesses, form]);
 
   useEffect(() => {
     if (!token) return;
@@ -84,8 +99,14 @@ export function ScheduleManager() {
     setError(null);
 
     try {
+      const businessId = values.business_id?.trim() || activeBusinessId || "";
+      if (!values.all_businesses && !businessId) {
+        setError("Select All SMEs or enter a business ID for this schedule.");
+        return;
+      }
+
       const result = await createSchedule(token, {
-        business_id: values.all_businesses ? null : (values.business_id?.trim() || activeBusinessId || null),
+        business_id: values.all_businesses ? null : businessId,
         frequency: values.frequency,
         time_of_day: values.time_of_day,
         day_of_week: values.frequency === "weekly" ? values.day_of_week : undefined,
@@ -96,7 +117,7 @@ export function ScheduleManager() {
       });
       setSchedules((prev) => [result, ...prev]);
       pushToast("Schedule created", "success");
-      form.reset();
+      form.reset(scheduleDefaults(activeBusinessId));
     } catch (err) {
       const msg = isApiError(err) ? err.message : "Failed to create schedule";
       setError(msg);
@@ -204,10 +225,16 @@ export function ScheduleManager() {
           <label className="text-sm font-medium">
             Start Date
             <Input type="date" {...form.register("start_date")} className="mt-1" />
+            {form.formState.errors.start_date ? (
+              <p className="mt-1 text-xs text-[var(--danger)]">{form.formState.errors.start_date.message}</p>
+            ) : null}
           </label>
           <label className="text-sm font-medium">
             End Date (optional)
             <Input type="date" {...form.register("end_date")} className="mt-1" />
+            {form.formState.errors.end_date ? (
+              <p className="mt-1 text-xs text-[var(--danger)]">{form.formState.errors.end_date.message}</p>
+            ) : null}
           </label>
           <div className="flex flex-col justify-end gap-2">
             <label className="flex items-center gap-2 text-sm cursor-pointer">
@@ -215,11 +242,14 @@ export function ScheduleManager() {
               All SMEs in organization
             </label>
             {!allBusinesses ? (
-              <Input
-                {...form.register("business_id")}
-                placeholder={activeBusinessId ?? ""}
-                className="text-xs"
-              />
+              <label className="text-xs font-medium text-[var(--text-muted)]">
+                Specific SME business ID
+                <Input
+                  {...form.register("business_id")}
+                  placeholder={activeBusinessId ?? "biz_001"}
+                  className="mt-1 text-xs"
+                />
+              </label>
             ) : null}
           </div>
         </div>

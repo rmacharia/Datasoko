@@ -9,6 +9,7 @@ import { z } from "zod";
 import { AuthGuard } from "@/components/auth-guard";
 import { useAuth } from "@/components/auth-provider";
 import { useOrg } from "@/components/org-provider";
+import { ScheduleManager } from "@/components/schedule-manager";
 import { SystemContext } from "@/components/system-context";
 import { useToast } from "@/components/toast-provider";
 import { Button } from "@/components/ui/button";
@@ -147,8 +148,8 @@ export default function JobsPage() {
     <AuthGuard>
       <main className="mx-auto max-w-6xl p-4 md:p-6">
         <SystemContext
-          title="Trigger Report Job"
-          subtitle="Asynchronous generation with live status polling."
+          title="Report Jobs"
+          subtitle="Generate reports now or automate delivery on a schedule."
           businessId={businessId}
         />
 
@@ -248,6 +249,10 @@ export default function JobsPage() {
             ) : null}
           </section>
         ) : null}
+
+        <div className="mt-6">
+          <ScheduleManager />
+        </div>
       </main>
     </AuthGuard>
   );
