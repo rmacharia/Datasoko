@@ -26,6 +26,8 @@ import {
   getAnalyticsWhatsApp,
   getBilling,
   getBusinesses,
+  getHealth,
+  getVersion,
   getSchedules,
   isApiError,
   type AdminStatusResponse,
@@ -38,6 +40,7 @@ import {
   type BusinessesResponse,
   type Schedule,
 } from "@/lib/api";
+import { buildTenantRuntimeStatus } from "@/lib/dashboard-status";
 
 type LoadState<T> = {
   loading: boolean;
@@ -96,7 +99,7 @@ export default function OverviewPage() {
   }, [isReady, isAuthenticated, user, token, router]);
 
   const load = useCallback(async () => {
-    if (!token) return;
+    if (!token || !user) return;
 
     setStatusState({ loading: true, data: null, error: null });
 
@@ -109,7 +112,12 @@ export default function OverviewPage() {
     }
 
     try {
-      const statusData = await getAdminStatus(token);
+      const statusData = user.role === "super_admin"
+        ? await getAdminStatus(token)
+        : buildTenantRuntimeStatus(
+            await getHealth(token),
+            await getVersion(token),
+          );
       setStatusState({ loading: false, data: statusData, error: null });
 
       if (hasOrgContext) {
@@ -128,7 +136,7 @@ export default function OverviewPage() {
         setBizState((prev) => prev.data ? prev : { loading: false, data: null, error: msg });
       }
     }
-  }, [token, organizationId]);
+  }, [token, user, organizationId]);
 
   const loadAnalytics = useCallback(async () => {
     if (!token) return;

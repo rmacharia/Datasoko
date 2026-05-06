@@ -12,6 +12,7 @@ import { useToast } from "@/components/toast-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { authLogin, authStatus, isApiError } from "@/lib/api";
+import { getPostLoginPath } from "@/lib/routing";
 
 const loginSchema = z.object({
   email: z.string().email("Enter a valid email address."),
@@ -22,7 +23,7 @@ type LoginForm = z.infer<typeof loginSchema>;
 
 export default function LoginPage() {
   const router = useRouter();
-  const { isAuthenticated, isReady, login } = useAuth();
+  const { isAuthenticated, isReady, login, user } = useAuth();
   const { pushToast } = useToast();
   const [error, setError] = useState<string | null>(null);
   const [setupAvailable, setSetupAvailable] = useState(false);
@@ -37,10 +38,10 @@ export default function LoginPage() {
   });
 
   useEffect(() => {
-    if (isReady && isAuthenticated) {
-      router.replace("/");
+    if (isReady && isAuthenticated && user) {
+      router.replace(getPostLoginPath(user));
     }
-  }, [isReady, isAuthenticated, router]);
+  }, [isReady, isAuthenticated, user, router]);
 
   useEffect(() => {
     let mounted = true;
@@ -64,13 +65,7 @@ export default function LoginPage() {
       const response = await authLogin({ email: values.email, password: values.password });
       login(response.access_token, response.user);
       pushToast(`Welcome, ${response.user.email}`, "success");
-      if (response.user.role === "super_admin") {
-        router.replace("/admin");
-      } else if (response.user.role === "sme_user") {
-        router.replace("/reports");
-      } else {
-        router.replace("/");
-      }
+      router.replace(getPostLoginPath(response.user));
     } catch (err) {
       const msg = isApiError(err) ? err.message : "Login failed. Check your credentials.";
       setError(msg);

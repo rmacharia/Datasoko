@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useMemo, useState } from "react";
 
 import { useAuth } from "@/components/auth-provider";
 import { setSuperAdminApiContext } from "@/lib/api";
+import { tenantContextFromUser } from "@/lib/org-session";
 
 const ORG_ID_KEY = "datasoko_org_id";
 const BIZ_ID_KEY = "datasoko_active_biz_id";
@@ -52,16 +53,24 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
           const ctx = JSON.parse(raw) as SuperAdminContext;
           setSelectedOrgId(ctx.orgId ?? null);
           setSelectedBusinessId(ctx.bizId ?? null);
+        } else {
+          setSelectedOrgId(null);
+          setSelectedBusinessId(null);
         }
       } catch {
-        // Corrupt entry — ignore; state stays null
+        setSelectedOrgId(null);
+        setSelectedBusinessId(null);
       }
       return;
     }
 
     if (user) {
-      if (user.organization_id) setOrgIdState(user.organization_id);
-      if (user.business_id) setBizIdState(user.business_id);
+      const tenantContext = tenantContextFromUser(user);
+      setOrgIdState(tenantContext.orgId);
+      setBizIdState(tenantContext.bizId);
+      setSelectedOrgId(null);
+      setSelectedBusinessId(null);
+      window.localStorage.removeItem(CONTEXT_KEY);
       return;
     }
 

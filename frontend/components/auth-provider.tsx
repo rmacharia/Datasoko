@@ -1,8 +1,10 @@
 "use client";
 
+import React from "react";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 
 import type { AuthUser } from "@/lib/api";
+import { authMe } from "@/lib/api";
 import { clearStoredToken, clearStoredUser, readStoredToken, readStoredUser, writeStoredToken, writeStoredUser } from "@/lib/auth";
 
 type AuthContextValue = {
@@ -24,11 +26,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const storedToken = readStoredToken();
     const storedUser = readStoredUser();
-    if (storedToken && storedUser) {
-      setToken(storedToken);
-      setUser(storedUser);
+    if (!storedToken || !storedUser) {
+      clearStoredToken();
+      clearStoredUser();
+      setIsReady(true);
+      return;
     }
-    setIsReady(true);
+
+    let mounted = true;
+    void authMe(storedToken)
+      .then((freshUser) => {
+        if (!mounted) return;
+        setToken(storedToken);
+        setUser(freshUser);
+        writeStoredUser(freshUser);
+      })
+      .catch(() => {
+        if (!mounted) return;
+        setToken(null);
+        setUser(null);
+        clearStoredToken();
+        clearStoredUser();
+      })
+      .finally(() => {
+        if (mounted) setIsReady(true);
+      });
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   const login = useCallback((nextToken: string, nextUser: AuthUser) => {
