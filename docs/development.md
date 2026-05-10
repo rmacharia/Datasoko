@@ -36,6 +36,8 @@ npm run dev
 
 Open `http://localhost:3000/setup` for first-time setup, then sign in at `http://localhost:3000/login`.
 
+The setup page calls `/auth/status` and `/auth/bootstrap`. Bootstrap only works when `ALLOW_BOOTSTRAP_ADMIN=true` and no users exist. After the first `super_admin` exists, use `/auth/login` and create tenant admins/users from the UI or API.
+
 ### Quick PostgreSQL with Docker
 
 ```bash
@@ -70,6 +72,7 @@ cd frontend && npm run lint
 - **Integration tests** require a live PostgreSQL via `DATABASE_URL`. Skipped cleanly if unset.
 - Backend tests use `RecordingConnection` stubs that capture executed SQL.
 - The `NormalizedPayloadStore` protocol in `ingestion/service.py` is the main seam for testing ingestion without a real DB.
+- Frontend tests cover auth/session routing, API normalization, settings secrets, dashboards, JSON panels, and WhatsApp previews with Vitest.
 
 ## Writing Migrations
 
@@ -77,7 +80,7 @@ cd frontend && npm run lint
 
 1. Every migration is a Python file matching `backend/migrations/migration_00*.py`
 2. Must export a `run(connection)` function
-3. Must **NOT** call `connection.commit()` — the runner owns the transaction
+3. New migrations must **not** call `connection.commit()` — the runner owns the transaction. `migration_005_users_constraints.py` is a legacy exception and should not be copied.
 4. Must be idempotent: `CREATE TABLE IF NOT EXISTS`, `ALTER TABLE ADD COLUMN IF NOT EXISTS`, `ON CONFLICT DO NOTHING`
 5. Must handle schema drift: tables may exist with missing columns
 
@@ -119,6 +122,9 @@ def test_my_migration(self):
 - **No psycopg (v3).** We use `psycopg2-binary` only. The connection module has a try/fallback but `psycopg2-binary` is the installed package.
 - **No manual SQL in production.** Everything goes through the migration runner. The manual SQL fallback exists but should never be needed.
 - **Decimal for money.** All financial computations use `Decimal`. No floats.
-- **Admin routes require auth.** Every `/admin/*` endpoint uses `_require_admin_token`.
+- **JWT secret is mandatory.** Set `JWT_SECRET` locally; the backend startup hook refuses silent fallback secrets.
+- **Admin routes require auth.** Platform-only `/admin/*` endpoints require a `super_admin` JWT or legacy `ADMIN_TOKEN`. Tenant operational routes accept `super_admin`, `admin`, or `sme_user` only where explicitly allowed.
+- **Tenant context matters.** Platform admins pass `X-Organization-Id` and optionally `X-Business-Id` for tenant-scoped routes. Tenant admins and SME users are pinned to the organization/business in their JWT.
 - **Secrets stay encrypted.** Never log API keys or tokens. The `_mask_dsn()` function in `run_migrations.py` shows how to handle connection strings.
 - **Migrations don't crash the app.** `startup.sh` continues even if migrations fail. The safety-net hook in `main.py` logs but doesn't raise.
+- **Scheduler is opt-in.** Set `RUN_SCHEDULER=true` only on one backend instance to avoid duplicate schedule processing.

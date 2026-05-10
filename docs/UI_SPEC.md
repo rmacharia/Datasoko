@@ -7,23 +7,32 @@
 - SME-facing experience remains WhatsApp-first; this UI does not replace that channel.
 
 ### Vertical Slice Implemented
+- First-admin setup at `/setup` using `/auth/status` and `/auth/bootstrap`.
 - Login gate at `/login` storing bearer token in memory and optional `sessionStorage`.
+- Role-aware routing after login:
+  - `super_admin` lands in platform admin context.
+  - `admin` lands in tenant operations.
+  - `sme_user` is scoped to the assigned business.
 - Overview page at `/` with text-first status cards from:
   - `GET /admin/status` (health, version, db connectivity, last run)
+  - analytics widgets from `/analytics/*`
 - Upload + Validate page at `/upload` with:
   - `POST /admin/upload/weekly` multipart upload
   - progress indicator, quality summary, schema fields, and copyable actionable errors
 - Typed fetch client with timeout/error normalization.
+- Platform admin pages under `/admin` for organizations, businesses, and users.
+- Tenant user management at `/users`.
+- Reports, jobs, schedules, settings, and WhatsApp preview surfaces.
 
 ### Guardrails
 - UI never computes business metrics; it only renders backend responses.
 - No raw transaction rows are shown in this slice.
 - No PII rendering or PII logging in client components.
 
-### Next API Needs (for remaining pages)
-- `GET /admin/reports?...` (metrics + whatsapp preview payload)
-- `POST /admin/reports/generate` (trigger + job id)
-- `GET /admin/jobs/{job_id}` (polling status)
+### Tenant Context
+- Platform admins select an organization/business context; API requests include `X-Organization-Id` and optionally `X-Business-Id`.
+- Tenant admins and SME users use JWT-scoped organization/business context.
+- Cross-tenant access failures must be shown as actionable auth/context errors, not generic network failures.
 
 ## Settings Console - New Section
 
@@ -53,3 +62,15 @@
 - `/admin/reports` now attempts LLM narration using server-side AI settings.
 - Narration input is generated from deterministic `metrics_json` only with strict JSON guardrails.
 - If provider call fails or keys are missing, system falls back to metrics-only narration output.
+
+## Scheduling and Analytics - New Section
+
+### Routes
+- `/reports` previews deterministic metrics and WhatsApp-ready report text.
+- `/jobs` shows generated report jobs and statuses.
+- `/settings` manages operational defaults, AI, WhatsApp, schedules, and billing-related context.
+- `/admin/*` pages are platform-only.
+
+### Data Sources
+- `/analytics/metrics`, `/analytics/uploads`, `/analytics/whatsapp`, `/analytics/activity`, and `/analytics/costs`.
+- `/schedules` CRUD for scheduled report delivery.

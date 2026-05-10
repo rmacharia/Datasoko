@@ -15,6 +15,7 @@ Push to main
     -> bash startup.sh
       -> python backend/scripts/run_migrations.py
       -> gunicorn starts
+      -> optional scheduler starts inside FastAPI when RUN_SCHEDULER=true
 ```
 
 No migrations run in CI. The database is VNet-private and unreachable from GitHub Actions runners. Migrations execute on the Azure container itself via `startup.sh`.
@@ -42,11 +43,16 @@ Optional App Settings:
 |---|---|
 | `SETTINGS_ENCRYPTION_KEY` | Encryption key for stored secrets |
 | `ALLOW_BOOTSTRAP_ADMIN` | Set `true` only during controlled first-admin setup; keep `false` otherwise |
+| `RUN_SCHEDULER` | Set `true` on one backend instance to run scheduled reports |
 | `AZURE_OPENAI_ENDPOINT` | Azure OpenAI endpoint URL |
 | `AZURE_OPENAI_API_KEY` | Azure OpenAI API key |
 | `AZURE_OPENAI_DEPLOYMENT` | Azure OpenAI deployment name |
+| `OPENAI_API_KEY` / `OPENAI_MODEL` | Optional OpenAI fallback provider credentials |
 | `WHATSAPP_PHONE_NUMBER_ID` | Meta Cloud API phone number ID |
 | `WHATSAPP_ACCESS_TOKEN` | Meta Cloud API access token |
+| `TWILIO_ACCOUNT_SID` | Twilio account SID for WhatsApp delivery |
+| `TWILIO_AUTH_TOKEN` | Twilio auth token |
+| `TWILIO_WHATSAPP_NUMBER` | Twilio WhatsApp sender, e.g. `whatsapp:+14155238886` |
 
 ### Frontend (datasoko-web)
 
@@ -68,13 +74,14 @@ echo "=== RUNNING DB MIGRATIONS ==="
 python backend/scripts/run_migrations.py || echo "[migrations] WARNING: failed but continuing..."
 
 echo "=== STARTING APP ==="
+PORT="${PORT:-8000}"
 exec gunicorn -k uvicorn.workers.UvicornWorker backend.main:app --bind=0.0.0.0:$PORT --timeout 120
 ```
 
 - Runs migrations **before** the app starts
 - Migration failure does **not** crash the app (logs warning, continues)
 - Uses `exec` so gunicorn replaces the shell process (proper signal handling)
-- `$PORT` is set by Azure App Service
+- `$PORT` is set by Azure App Service; local fallback is `8000`
 
 ### Expected Log Output (Healthy)
 
@@ -112,6 +119,8 @@ exec gunicorn -k uvicorn.workers.UvicornWorker backend.main:app --bind=0.0.0.0:$
 The FastAPI startup hook in `main.py` acts as a secondary check. If `startup.sh` was bypassed (e.g., running `uvicorn` directly in dev), the hook checks whether the `organizations` table exists. If missing, it runs migrations.
 
 This is a fallback only. The primary path is always `startup.sh`.
+
+The backend also starts the in-process scheduler only when `RUN_SCHEDULER=true`. In scaled-out App Service deployments, enable this on a single instance or move scheduling to a dedicated worker to prevent duplicate report generation.
 
 ## Troubleshooting
 

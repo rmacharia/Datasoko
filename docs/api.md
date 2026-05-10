@@ -2,11 +2,74 @@
 
 Base URL: `http://localhost:8000` (dev) or `https://datasoko-api.azurewebsites.net` (prod)
 
-## Public Endpoints
+## Authentication
+
+Most application endpoints require `Authorization: Bearer <token>`.
+
+- JWTs are issued by `/auth/login`, `/auth/bootstrap`, and `/auth/register`.
+- `ADMIN_TOKEN` is still accepted by legacy/platform routes as a service-level `super_admin` identity.
+- `super_admin` can access platform routes and can pass `X-Organization-Id` / `X-Business-Id` to choose tenant context.
+- `admin` is scoped to one organization.
+- `sme_user` is scoped to one organization and business.
+
+## Auth Endpoints
+
+### GET /auth/status
+
+Returns whether first-admin setup is available.
+
+### POST /auth/bootstrap
+
+Creates the first platform `super_admin`. Requires `ALLOW_BOOTSTRAP_ADMIN=true` and zero existing users.
+
+**Request:**
+```json
+{
+  "email": "owner@example.com",
+  "password": "change-me"
+}
+```
+
+### POST /auth/login
+
+**Request:**
+```json
+{
+  "email": "owner@example.com",
+  "password": "change-me"
+}
+```
+
+**Response:**
+```json
+{
+  "access_token": "jwt",
+  "token_type": "bearer",
+  "user": {
+    "id": "user_id",
+    "email": "owner@example.com",
+    "role": "super_admin",
+    "organization_id": null,
+    "business_id": null
+  }
+}
+```
+
+### GET /auth/me
+
+Returns the authenticated user from the bearer token.
+
+### POST /auth/register
+
+Creates users. Public registration is limited to the first `super_admin` path when bootstrap is enabled; otherwise a platform admin token is required.
+
+---
+
+## Tenant Setup Endpoints
 
 ### POST /onboard
 
-Create a new organization with a trial subscription.
+Create a trial subscription for an organization. Requires `super_admin` or tenant `admin`.
 
 **Request:**
 ```json
@@ -60,6 +123,7 @@ Register a business under an organization.
 
 **Errors:**
 - `400` — Organization does not exist
+- `403` — Tenant user attempted cross-organization access
 - `409` — Business ID already exists
 
 ---
@@ -109,13 +173,67 @@ Get current billing status for an organization.
 
 ---
 
-## Admin Endpoints
+## Platform Admin Endpoints
 
-All admin endpoints require `Authorization: Bearer <ADMIN_TOKEN>`.
+These require a `super_admin` JWT or legacy `ADMIN_TOKEN`.
+
+### POST /admin/organizations
+
+Create an organization and its first org admin.
+
+**Request:**
+```json
+{
+  "name": "Mama Fua Group",
+  "organization_id": "mama_fua",
+  "admin_email": "admin@mama-fua.example",
+  "admin_password": "change-me"
+}
+```
+
+### GET /admin/organizations
+
+List organizations with user/business counts and subscription summary.
+
+### GET /admin/businesses
+
+List all businesses across organizations.
+
+---
+
+## User Management
+
+### POST /users
+
+Create a tenant user. `super_admin` may create `admin` or `sme_user`; org `admin` may create only `sme_user` inside its organization.
+
+### GET /users
+
+List users visible to the authenticated platform/org admin.
+
+### PATCH /users/{user_id}
+
+Update role, tenant assignment, business assignment, or active state.
+
+### DELETE /users/{user_id}
+
+Soft-disables a user by setting `is_active=false`.
+
+---
+
+## Operational Admin Endpoints
+
+Operational endpoints use different guards:
+
+- Platform diagnostics/settings endpoints require a `super_admin` JWT or legacy `ADMIN_TOKEN`.
+- Tenant operations such as upload/report generation require `super_admin` or tenant `admin`.
+- Platform users should pass `X-Organization-Id` for tenant-scoped operations.
 
 ### GET /admin/status
 
 System health check with database diagnostics.
+
+Requires `super_admin` or `ADMIN_TOKEN`.
 
 **Response:**
 ```json
@@ -144,6 +262,8 @@ System health check with database diagnostics.
 
 Upload Excel and/or M-Pesa files for a business week. Multipart form data.
 
+Requires `super_admin` or tenant `admin`.
+
 **Form Fields:**
 - `business_id` (required)
 - `week_start` (required, date)
@@ -158,6 +278,8 @@ Upload Excel and/or M-Pesa files for a business week. Multipart form data.
 
 Generate a weekly report for a business.
 
+Requires `super_admin` or tenant `admin`.
+
 **Query Parameters:**
 - `business_id` (required)
 - `week_start`, `week_end` (required, dates)
@@ -170,6 +292,8 @@ Generate a weekly report for a business.
 ### POST /admin/reports/generate
 
 Queue a report generation job.
+
+Requires `super_admin` or tenant `admin`.
 
 **Request:**
 ```json
@@ -200,11 +324,15 @@ Check job status.
 
 Get current admin settings (non-secret).
 
+Requires `super_admin` or `ADMIN_TOKEN`.
+
 ---
 
 ### PUT /admin/settings
 
 Update admin settings. Supports `operational`, `ai`, and `whatsapp` sections.
+
+Requires `super_admin` or `ADMIN_TOKEN`.
 
 ---
 
@@ -212,10 +340,64 @@ Update admin settings. Supports `operational`, `ai`, and `whatsapp` sections.
 
 Send a test WhatsApp message.
 
+Requires `super_admin` or `ADMIN_TOKEN`.
+
 **Request:**
 ```json
 {
   "to_phone": "+254712345678"
+}
+```
+
+---
+
+### POST /reports/send-test
+
+Legacy Twilio WhatsApp test send. Requires `ADMIN_TOKEN` or `super_admin`.
+
+**Request:**
+```json
+{
+  "phone": "+254712345678"
+}
+```
+
+---
+
+## Analytics Endpoints
+
+These require tenant context through JWT or platform headers.
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /analytics/metrics?business_id=biz_001` | Revenue, expense, profit trends and totals |
+| `GET /analytics/uploads?business_id=biz_001` | Recent processed uploads |
+| `GET /analytics/whatsapp?business_id=biz_001` | WhatsApp delivery count, last send, success rate |
+| `GET /analytics/activity?business_id=biz_001` | Recent activity timeline |
+| `GET /analytics/costs` | Organization-level WhatsApp cost summary |
+
+---
+
+## Schedule Endpoints
+
+Schedules require `super_admin` or org `admin` for writes. `sme_user` can read only where tenant access is allowed.
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /schedules` | Create daily, weekly, or monthly report schedule |
+| `GET /schedules` | List schedules for current organization |
+| `PATCH /schedules/{schedule_id}` | Update schedule fields or active state |
+| `DELETE /schedules/{schedule_id}` | Delete a schedule |
+
+**Create request:**
+```json
+{
+  "business_id": "biz_001",
+  "frequency": "weekly",
+  "time_of_day": "18:00",
+  "day_of_week": 4,
+  "start_date": "2026-05-01",
+  "send_whatsapp": true
 }
 ```
 

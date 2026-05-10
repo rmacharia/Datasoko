@@ -61,10 +61,103 @@ CREATE INDEX idx_businesses_org ON businesses (organization_id);
 
 ### ingestion_weekly_payloads
 
-JSONB storage for normalized upload data. Created by `PostgresIngestionStore.ensure_table()`.
+Tenant-tagged JSONB storage for normalized upload data. Created by `PostgresIngestionStore.ensure_table()`.
 
 ```sql
--- Unique on (business_id, dataset, week_start, week_end)
+CREATE TABLE ingestion_weekly_payloads (
+    id BIGSERIAL PRIMARY KEY,
+    organization_id TEXT,
+    business_id TEXT NOT NULL,
+    dataset TEXT NOT NULL,
+    week_start DATE NOT NULL,
+    week_end DATE NOT NULL,
+    payload JSONB NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (business_id, dataset, week_start, week_end)
+);
+```
+
+Migration 008 backfills `organization_id` from `businesses` where possible and adds tenant lookup indexes.
+
+### users
+
+Authentication and role scoping.
+
+```sql
+CREATE TABLE users (
+    id              TEXT PRIMARY KEY,
+    email           TEXT UNIQUE NOT NULL,
+    password_hash   TEXT NOT NULL,
+    organization_id TEXT,
+    role            TEXT NOT NULL CHECK (role IN ('super_admin', 'admin', 'sme_user')),
+    business_id     TEXT,
+    is_active       BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+`super_admin` users are platform-wide and have `organization_id = NULL`. `admin` users are organization scoped. `sme_user` users are organization and business scoped.
+
+### whatsapp_message_log
+
+Best-effort delivery ledger used by WhatsApp analytics and cost reporting.
+
+```sql
+CREATE TABLE whatsapp_message_log (
+    id              BIGSERIAL PRIMARY KEY,
+    organization_id TEXT NOT NULL DEFAULT 'default_org',
+    business_id     TEXT NOT NULL,
+    phone           TEXT NOT NULL,
+    message_preview TEXT,
+    status          TEXT NOT NULL DEFAULT 'sent',
+    provider        TEXT NOT NULL DEFAULT 'twilio',
+    provider_sid    TEXT,
+    error_detail    TEXT,
+    cost_usd        NUMERIC(10,4) DEFAULT 0,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+### activity_log
+
+Internal audit/activity timeline for dashboard surfaces.
+
+```sql
+CREATE TABLE activity_log (
+    id              BIGSERIAL PRIMARY KEY,
+    organization_id TEXT NOT NULL DEFAULT 'default_org',
+    business_id     TEXT NOT NULL,
+    event_type      TEXT NOT NULL,
+    message         TEXT NOT NULL,
+    status          TEXT NOT NULL DEFAULT 'success',
+    metadata_json   JSONB,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+### report_schedules
+
+Report schedule configuration and last/next run tracking.
+
+```sql
+CREATE TABLE report_schedules (
+    id              TEXT PRIMARY KEY,
+    organization_id TEXT NOT NULL,
+    business_id     TEXT,
+    frequency       TEXT NOT NULL,
+    time_of_day     TIME NOT NULL,
+    day_of_week     INTEGER,
+    day_of_month    INTEGER,
+    start_date      DATE NOT NULL,
+    end_date        DATE,
+    send_whatsapp   BOOLEAN NOT NULL DEFAULT TRUE,
+    is_active       BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_run_at     TIMESTAMPTZ,
+    last_status     TEXT,
+    next_run_at     TIMESTAMPTZ
+);
 ```
 
 ### admin_settings / admin_secret_settings
@@ -95,10 +188,23 @@ Each migration is a Python file in `backend/migrations/` matching `migration_00*
 
 ```python
 def run(connection):
-    """Called by runner. Must NOT commit — runner owns the transaction."""
+    """Called by runner. New migrations should not commit — runner owns the transaction."""
     with connection.cursor() as cur:
         cur.execute("...")
 ```
+
+### Current Migration Set
+
+| Migration | Purpose |
+|---|---|
+| `migration_001_multitenancy.py` | Organizations, subscriptions, businesses, default org, drift repair |
+| `migration_002_analytics.py` | WhatsApp message log and activity log |
+| `migration_003_scheduling.py` | Report schedules and `cost_usd` tracking |
+| `migration_004_auth.py` | Users table |
+| `migration_005_users_constraints.py` | Legacy user constraints |
+| `migration_006_roles_split.py` | Role split to `super_admin`, `admin`, `sme_user` and nullable platform org |
+| `migration_007_hardening.py` | Schedule last/next run tracking and WhatsApp cost default |
+| `migration_008_tenant_payload_normalization.py` | Tenant context on ingestion payloads |
 
 ### Three-Phase DDL (migration_001)
 
